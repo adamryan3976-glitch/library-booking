@@ -4,9 +4,12 @@ var Api = (function () {
   var url = ((window.LIBRARY_CONFIG || {}).apiUrl || '').trim();
   var demo = !url;
   var GET_ACTIONS = { init: true, bookings: true };
+  var TEACHER_ACTIONS = { book: true, mine: true, cancel: true, update: true };
+  var idToken = null;
 
   function call(action, payload) {
-    payload = payload || {};
+    payload = Object.assign({}, payload || {});
+    if (idToken && TEACHER_ACTIONS[action]) payload.idToken = idToken;
     if (demo) return Demo.call(action, payload);
     var req;
     if (GET_ACTIONS[action]) {
@@ -23,7 +26,7 @@ var Api = (function () {
     return req.then(function (res) { return res.json(); }, function () {
       throw new Error('Can’t reach the booking server. Check your connection and try again.');
     }).then(function (j) {
-      if (!j.ok) throw new Error(j.error || 'The server could not complete that request.');
+      if (!j.ok) { var e = new Error(j.error || 'The server could not complete that request.'); e.auth = !!j.auth; throw e; }
       return j.data;
     });
   }
@@ -119,6 +122,15 @@ var Api = (function () {
 
     return {
       call: function (action, payload) {
+        // Demo only: trust the email inside the sign-in token without checking it with Google.
+        delete payload.authEmail;
+        if (payload.idToken) {
+          try {
+            var claims = JSON.parse(decodeURIComponent(escape(atob(payload.idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
+            payload.authEmail = payload.email = String(claims.email).toLowerCase();
+          } catch (e) { /* ignore */ }
+          delete payload.idToken;
+        }
         return new Promise(function (resolve, reject) {
           setTimeout(function () {
             try { resolve(JSON.parse(JSON.stringify(Core.handle(action, payload, store, now())))); }
@@ -130,5 +142,5 @@ var Api = (function () {
     };
   })();
 
-  return { call: call, demo: demo, resetDemo: Demo.reset };
+  return { call: call, demo: demo, resetDemo: Demo.reset, setIdToken: function (t) { idToken = t || null; } };
 })();

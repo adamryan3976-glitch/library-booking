@@ -2,7 +2,7 @@
  * Winchester P.S. Library Booking — shared booking rules.
  *
  * This exact file is used in two places:
- *   1. apps-script/Core.gs   (the live backend, inside your Google Sheet)
+ *   1. apps-script/BookingCore.gs   (the live backend in Apps Script)
  *   2. assets/core.js        (the browser, for cycle days and demo mode)
  * If you change one, copy it to the other so the rules stay identical.
  */
@@ -353,7 +353,7 @@ var Core = (function () {
     if (!items || !items.length) throw err('Choose at least one time slot.');
     if (!opts.admin) {
       if (!s.bookingsOpen) throw err(s.closedMessage || 'Online booking is closed.');
-      if (s.maxSlotsPerBooking && items.length > s.maxSlotsPerBooking)
+      if (s.maxSlotsPerBooking && !opts.skipPerBookingMax && items.length > s.maxSlotsPerBooking)
         throw err('You can book up to ' + s.maxSlotsPerBooking + ' slots at a time.');
     }
     var slotByName = {};
@@ -411,32 +411,51 @@ var Core = (function () {
     return rows.map(function (b) { return '• ' + fmtDateLong(b.date) + ' — ' + b.slot + (b.space ? ' (' + b.space + ')' : ''); }).join('\n');
   }
 
+  function cleanDetails(p) {
+    var teachers = cleanList(p.teachers);
+    if (!teachers.length) throw err('Add at least one teacher name.');
+    var description = String(p.description || '').trim();
+    if (!description) throw err('Add a short description of the activity.');
+    if (description.length > 300) throw err('Keep the description under 300 characters.');
+    return { teachers: teachers.join(', '), grades: cleanList(p.grades).join(', '), description: description };
+  }
+
+  function cleanItems(list, s) {
+    return (list || []).map(function (it) {
+      return { date: String(it.date || ''), slot: String(it.slot || ''), space: String(it.space || s.spaces[0]) };
+    });
+  }
+
+  function sortRows(rows, s) {
+    return rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : slotIndex(s, a.slot) - slotIndex(s, b.slot); });
+  }
+
+  /** May this request change the group? A matching private token or a signed-in email that made the booking. */
+  function canManage(rows, p) {
+    if (!rows.length) return false;
+    if (p.token && rows[0].token === p.token) return true;
+    return !!(p.authEmail && rows[0].email && rows[0].email.toLowerCase() === String(p.authEmail).toLowerCase());
+  }
+
   function createBooking(p, store, ctx, opts) {
     var s = ctx.settings;
-    var email = String(p.email || '').trim().toLowerCase();
+    var email = String(p.authEmail || p.email || '').trim().toLowerCase();
     if (!opts.admin) {
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw err('Enter your school email address.');
       if (s.emailDomain && email.slice(-(s.emailDomain.length + 1)) !== '@' + s.emailDomain.toLowerCase())
         throw err('Use your @' + s.emailDomain + ' email address.');
     }
-    var teachers = cleanList(p.teachers);
-    if (!teachers.length) throw err('Add at least one teacher name.');
-    var grades = cleanList(p.grades);
-    var description = String(p.description || '').trim();
-    if (!description) throw err('Add a short description of the activity.');
-    if (description.length > 300) throw err('Keep the description under 300 characters.');
-    var items = (p.items || []).map(function (it) {
-      return { date: String(it.date || ''), slot: String(it.slot || ''), space: String(it.space || s.spaces[0]) };
-    });
+    var det = cleanDetails(p);
+    var items = cleanItems(p.items, s);
     validateItems(items, email, ctx, opts);
 
     var groupId = store.newId(), token = randomToken(store), created = ctx.now.stamp;
     var rows = items.map(function (it) {
-      return { id: store.newId(), groupId: groupId, created: created, email: email, teachers: teachers.join(', '),
-        grades: grades.join(', '), space: it.space, date: it.date, slot: it.slot, description: description,
+      return { id: store.newId(), groupId: groupId, created: created, email: email, teachers: det.teachers,
+        grades: det.grades, space: it.space, date: it.date, slot: it.slot, description: det.description,
         status: 'active', token: token, source: opts.admin ? 'admin' : 'teacher', cancelledAt: '' };
     });
-    rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : slotIndex(s, a.slot) - slotIndex(s, b.slot); });
+    sortRows(rows, s);
     store.appendBookings(rows);
 
     var label = bookingLabel(rows[0]);
@@ -444,7 +463,7 @@ var Core = (function () {
     if (s.sendConfirmation && email && !opts.admin) {
       safeMail(store, email, 'Library booked: ' + label,
         'Your library booking is confirmed.\n\n' + label + '\n' + summaryText(rows) +
-        (s.allowTeacherCancel ? '\n\nNeed to cancel? Open this link:\n' + cancelUrl : '') +
+        (s.allowTeacherCancel ? '\n\nNeed to change or cancel it? Open this link:\n' + cancelUrl : '') +
         '\n\n— ' + s.schoolName + ' Library');
     }
     if (s.notifyEmail) {
@@ -452,6 +471,59 @@ var Core = (function () {
         label + '\nBooked by ' + (email || 'admin') + '\n\n' + summaryText(rows));
     }
     return { groupId: groupId, token: token, bookings: rows.map(publicBooking) };
+  }
+
+  /**
+   * Teacher edit: change details, drop some times and/or add new ones, in one step.
+   * p: { groupId, token|authEmail, teachers, grades, description, removeIds: [], addItems: [] }
+   */
+  function updateBooking(p, store, ctx) {
+    var s = ctx.settings, now = ctx.now;
+    if (!s.allowTeacherCancel) throw err('Please ask the librarian to change this booking.');
+    var all = ctx.bookings;
+    var rows = all.filter(function (b) { return b.groupId === p.groupId && b.status === 'active'; });
+    if (!rows.length) throw err('This booking was already cancelled, or the link is not valid.');
+    if (!canManage(rows, p)) throw err('You can only change bookings you made.');
+    var det = cleanDetails(p);
+    var removeIds = p.removeIds || [];
+    var removing = rows.filter(function (b) { return removeIds.indexOf(b.id) >= 0; });
+    removing.forEach(function (b) { if (b.date < now.date) throw err('Times that have already passed can’t be removed.'); });
+    var keeping = rows.filter(function (b) { return removeIds.indexOf(b.id) < 0; });
+    var addItems = cleanItems(p.addItems, s);
+    if (addItems.length) {
+      // Check new times against everyone else's bookings, ignoring the times being removed from this one.
+      var others = all.filter(function (b) { return removing.indexOf(b) < 0; });
+      var max = s.maxSlotsPerBooking;
+      if (max && keeping.length + addItems.length > max) throw err('A booking can have up to ' + max + ' times.');
+      validateItems(addItems, rows[0].email, { settings: s, calendar: ctx.calendar, statics: ctx.statics, bookings: others, now: now },
+        { skipPerBookingMax: true });
+    }
+    var first = rows[0];
+    var changed = [];
+    keeping.forEach(function (b) {
+      if (b.teachers !== det.teachers || b.grades !== det.grades || b.description !== det.description) {
+        b.teachers = det.teachers; b.grades = det.grades; b.description = det.description; changed.push(b);
+      }
+    });
+    removing.forEach(function (b) { b.status = 'cancelled'; b.cancelledAt = now.stamp; changed.push(b); });
+    var added = addItems.map(function (it) {
+      return { id: store.newId(), groupId: first.groupId, created: first.created, email: first.email, teachers: det.teachers,
+        grades: det.grades, space: it.space, date: it.date, slot: it.slot, description: det.description,
+        status: 'active', token: first.token, source: first.source, cancelledAt: '' };
+    });
+    if (changed.length) store.updateBookings(changed);
+    if (added.length) store.appendBookings(added);
+    var active = sortRows(keeping.concat(added), s);
+    if (active.length || removing.length || added.length) {
+      var label = active.length ? bookingLabel(active[0]) : bookingLabel(first);
+      var body = (active.length ? label + '\n' + summaryText(active) : 'All times were removed, so this booking is cancelled.');
+      if (s.sendConfirmation && first.email) safeMail(store, first.email, 'Library booking updated: ' + label,
+        'Your library booking was updated.\n\n' + body + '\n\n— ' + s.schoolName + ' Library');
+      if (s.notifyEmail) safeMail(store, s.notifyEmail, 'Library booking changed: ' + label,
+        body + '\nChanged by ' + (p.authEmail || first.email || 'teacher') +
+        (removing.length ? '\n\nRemoved:\n' + summaryText(removing) : '') + (added.length ? '\n\nAdded:\n' + summaryText(added) : ''));
+    }
+    return { bookings: active.map(publicBooking) };
   }
 
   function safeMail(store, to, subject, body) {
@@ -526,20 +598,24 @@ var Core = (function () {
       case 'mine': {
         var keys = {};
         (p.groups || []).forEach(function (g) { keys[g.groupId] = g.token; });
+        var me = String(p.authEmail || '').toLowerCase();
         return { bookings: loadBookings().filter(function (b) {
-          return b.status === 'active' && keys[b.groupId] && keys[b.groupId] === b.token && b.date >= now.date;
+          if (b.status !== 'active' || b.date < now.date) return false;
+          return (keys[b.groupId] && keys[b.groupId] === b.token) || (me && b.email && b.email.toLowerCase() === me);
         }).map(publicBooking) };
       }
 
       case 'cancel':
         return store.withLock(function () {
           if (!ctx.settings.allowTeacherCancel) throw err('Please ask the librarian to cancel this booking.');
-          var rows = loadBookings().filter(function (b) {
-            return b.groupId === p.groupId && b.token === p.token && b.status === 'active' &&
-              (!p.ids || !p.ids.length || p.ids.indexOf(b.id) >= 0);
-          });
+          var group = loadBookings().filter(function (b) { return b.groupId === p.groupId && b.status === 'active'; });
+          if (!canManage(group, p)) group = [];
+          var rows = group.filter(function (b) { return !p.ids || !p.ids.length || p.ids.indexOf(b.id) >= 0; });
           return cancelRows(rows, store, ctx, rows.length ? rows[0].email : '');
         });
+
+      case 'update':
+        return store.withLock(function () { loadBookings(); return updateBooking(p, store, ctx); });
 
       // ----- Admin -----
       case 'adminLogin':
