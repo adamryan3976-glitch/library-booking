@@ -36,7 +36,18 @@
   <div class="notice" id="announcement" hidden></div>
   <div class="notice notice-warn" id="closedNotice" hidden></div>
 
-  <main class="page">
+  <main class="gate" id="gate" hidden>
+    <div class="gate-card">
+      <svg class="gate-mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1B2440"/><g fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"><path d="M14 18h14a4 4 0 0 1 4 4v26a4 4 0 0 0-4-4H14z"/><path d="M50 18H36a4 4 0 0 0-4 4v26a4 4 0 0 1 4-4h14z"/></g></svg>
+      <h1>Book the library</h1>
+      <p id="gateText">Sign in with your school Google account to see the library calendar and book times.</p>
+      <div class="gsi-slot" id="gateButton"></div>
+      <p class="form-error" id="gateError" role="alert" hidden></p>
+      <p class="gate-foot"><a href="admin.html">Librarian admin</a></p>
+    </div>
+  </main>
+
+  <main class="page" id="pageMain">
     <section class="weekbar" aria-label="Choose a week">
       <button class="btn btn-icon" id="prevWeek" type="button" aria-label="Previous week">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
