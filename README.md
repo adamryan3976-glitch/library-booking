@@ -11,8 +11,13 @@ Bookings are saved in the existing Google Sheet.
 ```
 GitHub Pages (this repo)            Google Sheet + Apps Script
 library.winchesterps.ca   ──────►   "App Bookings", "App Settings", … tabs
-index.html  (teachers)              Code.gs + Core.gs (web app)
-admin.html  (librarian)
+index.html  (teachers)              BookingApi.gs + BookingCore.gs
+admin.html  (librarian)             (its own Apps Script project)
+                                          │ also copies every booking into
+                                          ▼
+                                    "Form Responses 2" (old Form format)
+                                    → weekly tabs, Today tab, Library Today
+                                      and Home Assistant keep working
 ```
 
 - **Teachers** use `index.html`. They pick times, enter their name(s), grade(s), activity and school email, and get an email confirmation with a cancel link.
@@ -21,7 +26,7 @@ admin.html  (librarian)
   - add recurring reservations
   - edit the school calendar and the "Where's Adams?" schedule
   - change rules such as how far ahead teachers can book
-- **Data** lives in new tabs in your current Google Sheet. The old form tabs are left alone.
+- **Data** lives in new tabs in your current Google Sheet, and every booking is also copied into **Form Responses 2** in the old Form's format. Your weekly tabs, the Today tab, Library Today and the Home Assistant feed all read from there, so they keep working without changes.
 
 Until it's connected, the site runs in **demo mode**: bookings are saved only in your own browser, and the admin passcode is `changeme`. You can try everything before going live.
 
@@ -29,13 +34,16 @@ Until it's connected, the site runs in **demo mode**: bookings are saved only in
 
 ## Setup (about 20 minutes)
 
-### 1. Add the backend to the Google Sheet
+### 1. Create the booking backend (a separate Apps Script project)
 
-1. Open the **Winchester Library Booking** Google Sheet. Make a backup first if you like (File → Make a copy).
-2. Go to **Extensions → Apps Script**.
+The Sheet's existing Apps Script (Code.gs, App.html, Index.html, SchoolCalendarExport.gs) already has a `doGet()` for Library Today. A project can only have one `doGet()`, so the booking backend gets **its own project**. Your existing script and its deployments stay exactly as they are.
+
+1. Make a backup of the Sheet first if you like (File → Make a copy).
+2. Go to **[script.google.com](https://script.google.com) → New project**, signed in as the account that owns the Sheet. Rename the project *Library Booking API*.
 3. Paste in the two code files:
-   1. Rename the starting `Code.gs` file if you need to, then replace everything in it with [`apps-script/Code.gs`](apps-script/Code.gs).
-   2. Click **+ → Script** and name the new file `Core`. Paste in [`apps-script/Core.gs`](apps-script/Core.gs).
+   1. Rename the starting `Code.gs` file to `BookingApi`, then replace everything in it with [`apps-script/BookingApi.gs`](apps-script/BookingApi.gs).
+   2. Click **+ → Script**, name the new file `BookingCore`, and paste in [`apps-script/BookingCore.gs`](apps-script/BookingCore.gs).
+   - The Sheet's ID is already filled in at the top of `BookingApi.gs`.
 4. Click the ⚙️ **Project Settings** gear and set the **Time zone** to *(GMT-05:00) Eastern Time – Toronto*.
 5. Back in the editor, choose **`setup`** from the function menu at the top and click **Run**.
    - Google asks you to authorize the script. Choose your account → *Advanced* → *Go to project* → *Allow*.
@@ -44,6 +52,7 @@ Until it's connected, the site runs in **demo mode**: bookings are saved only in
 6. **Optional:** to bring over upcoming bookings from the old Google Form, choose **`importFormResponses`** and click **Run**.
    - Only bookings dated today or later are copied.
    - Run it once, just before you switch teachers over.
+   - These bookings are already in Form Responses 2, so they aren't copied there a second time. Cancelling or editing one in the new admin page still updates its original row.
 7. **Optional:** choose **`testEmail`** and click **Run**. This lets the script send email and sends you a test message.
 
 ### 2. Publish it as a web app
@@ -55,7 +64,7 @@ Until it's connected, the site runs in **demo mode**: bookings are saved only in
    - **Who has access:** **Anyone**
 3. Click **Deploy** and copy the **Web app URL**. It ends in `/exec`.
 
-> **If "Anyone" isn't offered** (some school-board Google accounts only allow "Anyone within DDSB"), the website won't be able to reach the script. The fix is to copy the Google Sheet into a personal Google account and do steps 1–2 from there. Teachers never sign in to Google either way, so they won't notice a difference.
+> **If "Anyone" isn't offered** (some school-board Google accounts only allow "Anyone within DDSB"), the website won't be able to reach the script. The fix is to copy the Google Sheet into a personal Google account, change `SPREADSHEET_ID` at the top of `BookingApi.gs` to the copy's ID, and do steps 1–2 from that account. Teachers never sign in to Google either way, so they won't notice a difference.
 
 ### 3. Connect the website
 
@@ -125,9 +134,16 @@ DNS can take anywhere from a few minutes to a few hours. When GitHub shows the d
 
 - **Website files** (`index.html`, `assets/…`): edit them on GitHub and the site updates in about a minute.
 - **Apps Script:** after editing, go to **Deploy → Manage deployments → ✏️ Edit**, set **Version: New version**, then click **Deploy**. The URL stays the same. If you skip this step, your changes won't go live.
-- `assets/core.js` and `apps-script/Core.gs` are **the same file**. They hold the booking rules and the cycle-day maths. If you change one, copy it over the other.
+- `assets/core.js` and `apps-script/BookingCore.gs` are **the same file**. They hold the booking rules and the cycle-day maths. If you change one, copy it over the other.
 
 ## Good to know
+
+- **How the Form Responses 2 copy works:** each booking gets one row per date, with the same columns the Form used. Cancelling some of its times updates the *Period(s)* cell, and cancelling all of them deletes the row. To stop copying (for example, once you retire the weekly tabs), set `FORM_MIRROR_SHEET = ''` at the top of `BookingApi.gs` and deploy a new version.
+- **Two copies of some lists:** the new site has its own recurring bookings and librarian schedule (admin → *Recurring* and *Librarian schedule*). Your weekly tabs and Library Today still use the old *Static Bookings* and *Simple Timetable* tabs. When a standing reservation or your timetable changes, update both places.
+- **The Today tab (AppSheet):** `updateTodaySheet()` in your other script looks for today's date in cells C3:G3 of every visible tab. The new *App* tabs are full of dates, so add this line near the top of its loop, right after `var sheetName = sheet.getName();`:
+  ```js
+  if (sheetName.indexOf('App ') === 0) continue;   // skip the booking site's data tabs
+  ```
 
 - **Teacher identity:** teachers type their own email. Only `@ddsb.ca` addresses are accepted (you can change this in Settings), and there's no Google sign-in. Each booking gets a private cancel link, so teachers can only cancel their own bookings, from the same device or from their confirmation email. If you ever need stronger sign-in, Google Sign-In can be added later.
 - **Double bookings:** the script locks while saving. If two teachers grab the same time at once, the second one is told it's taken.
