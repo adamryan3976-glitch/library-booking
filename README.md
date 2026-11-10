@@ -20,7 +20,7 @@ admin.html  (librarian)             (its own Apps Script project)
                                       and Home Assistant keep working
 ```
 
-- **Teachers** use `index.html`. They pick times, enter their name(s), grade(s), activity and school email, and get an email confirmation with a cancel link.
+- **Teachers** use `index.html`. They pick times, enter their name(s), grade(s) and activity, and get an email confirmation. From **My bookings** they can change a booking (details, drop times, add times) or cancel it. With Google sign-in turned on (see below), their email comes from their school Google account and My bookings works on any device.
 - **The librarian** uses `admin.html`, which is protected by a passcode, to:
   - manage bookings
   - add recurring reservations
@@ -100,7 +100,33 @@ DNS can take anywhere from a few minutes to a few hours. When GitHub shows the d
 3. Under **Settings → Emails**, add your email to get a copy of every booking and cancellation.
 4. On the **School calendar** tab, check that the "Check:" line shows the right cycle days.
 
-### 7. Switch teachers over
+### 7. Optional: turn on "Sign in with Google"
+
+Without this, teachers type their email and manage bookings from the device they booked on (or the link in their confirmation email). With it, they sign in once with their @ddsb.ca Google account: no typing their email, and **My bookings** shows everything they've booked on any device.
+
+**a. Create a Google sign-in client** (about 10 minutes)
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com). Sign in with your **DDSB account** if it's allowed to create projects; otherwise use a personal Google account.
+2. Create a project called *Winchester Library Booking*.
+3. Open **Google Auth Platform** (or **APIs & Services → OAuth consent screen**) and click **Get started**:
+   - **App name:** Winchester Library Booking. **Support email:** your email.
+   - **Audience:** choose **Internal** if you're on your DDSB account (only DDSB accounts can sign in, and no review is needed). On a personal account choose **External**, then on the **Audience** page click **Publish app**. The basic name-and-email sign-in used here doesn't need Google's review.
+4. Go to **Clients → Create client**:
+   - **Application type:** Web application. **Name:** Library booking site.
+   - **Authorized JavaScript origins:** add `https://library.winchesterps.ca`.
+   - Leave *Authorized redirect URIs* empty. Click **Create**.
+5. Copy the **Client ID**. It ends in `.apps.googleusercontent.com`.
+
+**b. Connect it**
+
+1. Paste the Client ID into `googleClientId` in [`assets/config.js`](assets/config.js) and upload that file to GitHub.
+2. In the booking Apps Script project, paste the same ID into `GOOGLE_CLIENT_ID` at the top of `BookingApi.gs`.
+3. Choose **`testSignInSetup`** and click **Run**. Approve the new permission, which lets the script check sign-ins with Google.
+4. **Deploy → Manage deployments → ✏️ → Version: New version → Deploy.**
+
+> **If teachers see "Access blocked" or "This app is blocked by your administrator,"** DDSB's Google settings don't allow sign-in to apps they haven't approved. Ask DDSB IT to trust the app's Client ID (Admin console → Security → API controls → App access control). Until then, clear `googleClientId` in `config.js` (and `GOOGLE_CLIENT_ID` in `BookingApi.gs`), and the site goes back to typed emails.
+
+### 8. Switch teachers over
 
 - On the Google Site, replace the embedded sheet and form with a link to (or an embed of) `https://library.winchesterps.ca`.
 - In the Google Form, turn off **Accepting responses**. Set the closed message to *"Library booking has moved to library.winchesterps.ca"*.
@@ -145,7 +171,8 @@ DNS can take anywhere from a few minutes to a few hours. When GitHub shows the d
   if (sheetName.indexOf('App ') === 0) continue;   // skip the booking site's data tabs
   ```
 
-- **Teacher identity:** teachers type their own email. Only `@ddsb.ca` addresses are accepted (you can change this in Settings), and there's no Google sign-in. Each booking gets a private cancel link, so teachers can only cancel their own bookings, from the same device or from their confirmation email. If you ever need stronger sign-in, Google Sign-In can be added later.
+- **Teacher identity:** with Google sign-in on, the email on each booking comes from the teacher's verified Google account, checked by the Apps Script with Google on every booking. Teachers can only change or cancel bookings made with their own account, or ones they hold the private link for. With sign-in off, teachers type their email (only `@ddsb.ca` is accepted, which you can change in Settings), and each booking gets a private link that's saved on their device and emailed to them.
+- **Changing a booking:** teachers can edit the details, remove times that haven't happened yet, and add new times, all in one save. New times follow the same rules as a new booking. Turning off *Teachers can change and cancel their own bookings* in Settings switches off both.
 - **Double bookings:** the script locks while saving. If two teachers grab the same time at once, the second one is told it's taken.
 - **Email limits:** Apps Script on a school account can send about 1,500 emails a day, and far fewer on a personal Gmail account (about 100 a day). Normal library use stays well under either limit.
 - **What's public:** the `apps-script` folder here is just a copy of the code for reference, and it contains no passwords. The admin passcode is stored in the script's private properties, not in this repo.

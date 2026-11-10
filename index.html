@@ -19,7 +19,14 @@
         <span class="brand-school" data-bind="schoolName">Winchester P.S.</span>
         <span class="brand-title" data-bind="siteTitle">Library Booking</span>
       </a>
-      <button class="btn btn-ghost-light" id="myBookingsBtn" type="button">My bookings</button>
+      <div class="mast-actions">
+        <div class="who-chip" id="whoChip" hidden>
+          <span class="who-name" id="whoName"></span>
+          <button class="who-out" id="signOutBtn" type="button">Sign out</button>
+        </div>
+        <button class="btn btn-ghost-light" id="signInBtn" type="button" hidden>Sign in</button>
+        <button class="btn btn-ghost-light" id="myBookingsBtn" type="button">My bookings</button>
+      </div>
     </div>
   </header>
 
@@ -86,6 +93,7 @@
       </header>
       <div class="sheet-body">
         <ul class="picked-list" id="pickedList"></ul>
+        <button class="btn btn-quiet btn-small add-more" id="addMoreBtn" type="button" hidden>Add more times</button>
 
         <div class="field">
           <label for="teacherInput">Teacher(s)</label>
@@ -108,7 +116,8 @@
           <textarea id="desc" rows="2" maxlength="300" placeholder="e.g. Book exchange, Lit circles, Research project"></textarea>
         </div>
 
-        <div class="field">
+        <p class="booking-as" id="bookingAs" hidden></p>
+        <div class="field" id="emailField">
           <label for="email">Your school email</label>
           <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="name@ddsb.ca">
           <label class="check"><input type="checkbox" id="remember" checked> Remember my name and email on this device</label>
@@ -117,10 +126,25 @@
         <p class="form-error" id="bookError" role="alert" hidden></p>
       </div>
       <footer class="sheet-foot">
-        <button class="btn btn-quiet" type="button" data-close>Cancel</button>
+        <button class="btn btn-quiet" type="button" data-close id="bookClose">Cancel</button>
         <button class="btn btn-primary" type="submit" id="bookSubmit">Book</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Sign in -->
+  <dialog class="sheet sheet-narrow" id="signinDialog" aria-labelledby="signinTitle">
+    <header class="sheet-head">
+      <h2 id="signinTitle">Sign in</h2>
+      <button class="btn btn-icon" type="button" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="muted" id="signinText">Use your school Google account. Your name and email are filled in for you, and you can see and change your bookings from any device.</p>
+      <div class="gsi-slot" id="gsiButton"></div>
+      <p class="form-error" id="signinError" role="alert" hidden></p>
+    </div>
   </dialog>
 
   <!-- Confirmation -->
