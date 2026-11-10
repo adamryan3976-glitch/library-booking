@@ -352,6 +352,20 @@ textarea { resize: vertical; }
 .mine-group li { background: var(--paper); }
 .empty { color: var(--ink-2); padding: 8px 0 16px; }
 
+/* ---------- Sign-in gate ---------- */
+.gate { min-height: calc(100dvh - 140px); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.gate-card {
+  width: min(420px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-l);
+  padding: 32px 28px 22px; text-align: center;
+}
+.gate-mark { width: 56px; height: 56px; transform: rotate(-6deg); }
+.gate-card h1 { margin: 14px 0 6px; font-size: 26px; letter-spacing: -.015em; }
+.gate-card p { margin: 0; color: var(--ink-2); }
+.gate-card .form-error { margin-top: 10px; text-align: left; }
+.gate-foot { margin-top: 18px !important; font-size: 14px; }
+body.is-gated #pageMain, body.is-gated #tray, body.is-gated #myBookingsBtn, body.is-gated #signInBtn,
+body.is-gated #announcement, body.is-gated #closedNotice { display: none !important; }
+
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; left: 50%; top: 16px; transform: translate(-50%, -150%); z-index: 50;
