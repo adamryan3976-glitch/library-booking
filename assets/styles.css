@@ -45,7 +45,10 @@ code { font-size: .9em; background: rgba(0,0,0,.06); padding: 1px 5px; border-ra
   max-width: 1280px; margin: 0 auto; padding: 14px 20px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.brand { color: #fff; text-decoration: none; display: flex; flex-direction: column; line-height: 1.1; }
+.brand { color: #fff; text-decoration: none; display: flex; align-items: center; gap: 12px; line-height: 1.1; }
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
+.brand-logo { width: 48px; height: 48px; border-radius: 11px; flex: none; }
+@media (max-width: 600px) { .brand-logo { width: 40px; height: 40px; border-radius: 9px; } .brand { gap: 10px; } }
 .brand-school { font-size: 14px; opacity: .75; }
 .brand-title { font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
 
@@ -56,7 +59,7 @@ code { font-size: .9em; background: rgba(0,0,0,.06); padding: 1px 5px; border-ra
 .masthead .btn, .who-out { white-space: nowrap; }
 .brand { min-width: 0; }
 @media (max-width: 600px) {
-  .who-name { display: none; }
+  .who-chip { display: none !important; }
   .masthead-inner { padding: 12px 14px; }
   .masthead .btn { padding: 6px 10px; min-height: 38px; font-size: 14px; }
   .mast-actions { gap: 6px; }
@@ -305,6 +308,7 @@ button.slot-open.is-picked .slot-state::before { content: '✓ '; }
 .tray.is-editing .tray-inner { background: var(--stamp); }
 .tray.is-editing .btn-primary { color: var(--stamp); }
 .mine-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.mine-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); margin-top: 8px; padding-top: 12px; font-size: 14px; color: var(--ink-2); }
 .picked-list .x { border: 0; background: none; cursor: pointer; color: var(--ink-2); font-size: 20px; line-height: 1; padding: 2px 6px; }
 
 .field { margin: 0 0 16px; border: 0; padding: 0; min-width: 0; }
@@ -358,7 +362,17 @@ textarea { resize: vertical; }
   width: min(420px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-l);
   padding: 32px 28px 22px; text-align: center;
 }
-.gate-mark { width: 56px; height: 56px; transform: rotate(-6deg); }
+.gate-logo { width: 128px; height: 128px; border-radius: 28px; display: block; margin: 0 auto; }
+.gate-step { display: grid; gap: 12px; margin-top: 4px; }
+.gate-step[hidden] { display: none; }
+#gateRequest { text-align: left; }
+#gateRequest p { text-align: center; }
+#gateRequest label { display: grid; gap: 6px; font-weight: 700; font-size: 15px; color: var(--ink); }
+#gateRequest .opt { font-weight: 400; color: var(--ink-2); }
+#gateRequest .btn { margin-top: 4px; }
+#gatePending .btn { justify-self: center; }
+.gate-foot { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.linklike { background: none; border: 0; padding: 0; color: var(--ink); text-decoration: underline; cursor: pointer; font-size: 14px; }
 .gate-card h1 { margin: 14px 0 6px; font-size: 26px; letter-spacing: -.015em; }
 .gate-card p { margin: 0; color: var(--ink-2); }
 .gate-card .form-error { margin-top: 10px; text-align: left; }

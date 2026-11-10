@@ -4,7 +4,7 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var SS_KEY = 'wps-library-admin';
-  var st = { pass: '', settings: null, calendar: [], statics: [], librarian: {}, bookings: [], checked: {} };
+  var st = { pass: '', settings: null, calendar: [], statics: [], librarian: {}, bookings: [], checked: {}, staff: [] };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function today() {
@@ -42,7 +42,8 @@
       if (st.pass === 'changeme') toast('You’re using the starting passcode. Change it under Settings.', true);
       $('fFrom').value = today(); $('fTo').value = Core.addDays(today(), 30);
       fillSettings(); renderStatics(); renderCalendar(); renderLibrarian();
-      loadBookings();
+      $('sRestrict').checked = !!st.settings.restrictToApproved;
+      loadBookings(); loadStaff();
     }).catch(function (e) {
       try { sessionStorage.removeItem(SS_KEY); } catch (x) { }
       $('loginError').textContent = e.message; $('loginError').hidden = false;
@@ -156,6 +157,87 @@
     }).catch(function (err) {
       $('editError').textContent = err.message; $('editError').hidden = false;
     }).then(function () { busy(btn, false); });
+  }
+
+  // ------------------------------------------------------------ Staff access
+
+  function loadStaff() {
+    return call('adminStaff').then(function (r) { st.staff = r.staff; renderStaff(); })
+      .catch(function (e) { toast(e.message, true); });
+  }
+
+  function fmtStamp(v) { return v ? Core.fmtDateShort(String(v).slice(0, 10)) + ', ' + String(v).slice(0, 4) : ''; }
+
+  function renderStaff() {
+    var s = st.settings, list = st.staff;
+    var pending = list.filter(function (x) { return x.status === 'pending'; });
+    var approved = list.filter(function (x) { return x.status === 'approved'; });
+    var denied = list.filter(function (x) { return x.status === 'denied'; });
+
+    $('staffBadge').hidden = !pending.length; $('staffBadge').textContent = pending.length;
+    document.querySelector('.restrict-box').classList.toggle('is-on', !!s.restrictToApproved);
+    var sso = !!((window.LIBRARY_CONFIG || {}).googleClientId || '').trim();
+    $('restrictHint').textContent = !sso ? 'This only works once Google sign-in is turned on (googleClientId in config.js).'
+      : s.restrictToApproved ? 'On. Anyone not on the approved list sees a “Request access” button instead of the calendar.'
+      : 'Off. Any signed-in @' + (s.emailDomain || 'school') + ' account can use the site. Add your staff first, then turn this on.';
+
+    $('pendingHead').hidden = !pending.length;
+    $('pendingList').innerHTML = pending.map(function (x) {
+      return '<div class="request-card" data-email="' + esc(x.email) + '">' +
+        '<div class="who"><b>' + esc(x.name) + '</b><span>' + esc(x.email) + ' · asked ' + esc(fmtStamp(x.requested)) + '</span>' +
+        (x.note ? '<div class="note">“' + esc(x.note) + '”</div>' : '') + '</div>' +
+        '<label class="save-as">Save as<input type="text" value="' + esc(x.name) + '" data-name></label>' +
+        '<button class="btn btn-primary btn-small" type="button" data-decide="approved">Approve</button>' +
+        '<button class="btn btn-danger btn-small" type="button" data-decide="denied">Deny</button></div>';
+    }).join('');
+
+    var q = $('staffSearch').value.trim().toLowerCase();
+    var shown = approved.filter(function (x) { return !q || (x.name + ' ' + x.email).toLowerCase().indexOf(q) >= 0; });
+    $('approvedCount').textContent = '(' + approved.length + ')';
+    document.querySelector('#staffTable tbody').innerHTML = shown.map(function (x) {
+      return '<tr data-email="' + esc(x.email) + '"><td>' + esc(x.name) + '</td><td>' + esc(x.email) + '</td><td class="nowrap">' + esc(fmtStamp(x.decided)) + '</td>' +
+        '<td class="actions"><button class="btn btn-danger btn-small" type="button" data-decide="remove">Remove</button></td></tr>';
+    }).join('');
+    $('staffEmpty').hidden = approved.length > 0;
+    $('deniedWrap').hidden = !denied.length;
+    document.querySelector('#deniedTable tbody').innerHTML = denied.map(function (x) {
+      return '<tr data-email="' + esc(x.email) + '"><td>' + esc(x.name) + '</td><td>' + esc(x.email) + '</td><td class="nowrap">' + esc(fmtStamp(x.decided)) + '</td>' +
+        '<td class="actions"><button class="btn btn-quiet btn-small" type="button" data-decide="approved">Approve</button>' +
+        '<button class="btn btn-danger btn-small" type="button" data-decide="remove">Remove</button></td></tr>';
+    }).join('');
+  }
+
+  function decide(btn) {
+    var row = btn.closest('[data-email]'), decision = btn.dataset.decide;
+    if (decision !== 'approved' && !btn.classList.contains('is-confirm')) {
+      btn.classList.add('is-confirm'); btn.dataset.label = btn.textContent; btn.textContent = 'Confirm';
+      setTimeout(function () { if (btn.isConnected && !btn.disabled) { btn.classList.remove('is-confirm'); btn.textContent = btn.dataset.label; } }, 4000);
+      return;
+    }
+    var nameInput = row.querySelector('[data-name]');
+    busy(btn, true, decision === 'approved' ? 'Approving…' : decision === 'denied' ? 'Denying…' : 'Removing…');
+    call('adminStaffDecide', { email: row.dataset.email, decision: decision, name: nameInput ? nameInput.value : null }).then(function (r) {
+      st.staff = r.staff; renderStaff();
+      toast(decision === 'approved' ? 'Approved. They’ve been emailed.' : decision === 'denied' ? 'Request denied' : 'Removed from the list');
+    }).catch(function (e) { toast(e.message, true); busy(btn, false); });
+  }
+
+  function parseStaffLines(text) {
+    return text.split(/\n/).map(function (line) { return line.trim(); }).filter(Boolean).map(function (line) {
+      var parts = line.split(/\t|,|;/).map(function (x) { return x.trim(); }).filter(Boolean);
+      var email = parts.filter(function (x) { return x.indexOf('@') > 0; })[0] || '';
+      var name = parts.filter(function (x) { return x !== email; }).join(' ');
+      return { name: name, email: email };
+    });
+  }
+
+  function addStaff(entries, btn, after) {
+    busy(btn, true, 'Adding…');
+    call('adminStaffAdd', { entries: entries }).then(function (r) {
+      st.staff = r.staff; renderStaff();
+      toast(r.added + ' added' + (r.updated ? ', ' + r.updated + ' already on the list (updated)' : ''));
+      if (after) after();
+    }).catch(function (e) { toast(e.message, true); }).then(function () { busy(btn, false); });
   }
 
   // ------------------------------------------------------------ Recurring
@@ -334,6 +416,30 @@
       updateBulk();
     });
     $('bulkCancel').onclick = function () { cancelIds(Object.keys(st.checked), this); };
+
+    // Staff access
+    $('staffSearch').addEventListener('input', renderStaff);
+    document.querySelector('[data-panel="staff"]').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-decide]'); if (b) decide(b);
+    });
+    $('addStaffForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      addStaff([{ name: $('newStaffName').value, email: $('newStaffEmail').value }], $('addStaffBtn'), function () {
+        $('newStaffName').value = ''; $('newStaffEmail').value = ''; $('newStaffName').focus();
+      });
+    });
+    $('bulkStaffBtn').onclick = function () {
+      var entries = parseStaffLines($('bulkStaff').value);
+      if (!entries.length) return toast('Paste at least one line: Name, email', true);
+      addStaff(entries, this, function () { $('bulkStaff').value = ''; });
+    };
+    $('saveRestrict').onclick = function () {
+      var on = $('sRestrict').checked;
+      var approved = st.staff.filter(function (x) { return x.status === 'approved'; }).length;
+      if (on && !approved) return toast('Add at least yourself to the approved list before turning this on.', true);
+      saveSettings({ restrictToApproved: on }, this, on ? 'Only approved staff can use the site now' : 'Any signed-in staff account can use the site now')
+        .then(renderStaff, function () { });
+    };
 
     // Recurring
     $('addStatic').onclick = function () {

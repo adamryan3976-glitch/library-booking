@@ -95,3 +95,23 @@
   .form-grid.tight { grid-template-columns: 1fr; }
   .mast-actions a { display: none; }
 }
+
+/* Staff access */
+.badge { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--stamp); color: #fff; font-size: 12px; text-align: center; margin-left: 4px; }
+.count { color: var(--ink-2); font-weight: 400; }
+.restrict-box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 14px 16px; display: grid; gap: 6px; justify-items: start; }
+.restrict-box .check { font-weight: 700; color: var(--ink); font-size: 16px; margin: 0; }
+.restrict-box p { margin: 0; }
+.restrict-box.is-on { border-left: 4px solid var(--open); }
+.request-card { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--stamp); border-radius: var(--radius-m); padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.request-card .who { flex: 1; min-width: 200px; }
+.request-card .who b { display: block; }
+.request-card .who span { color: var(--ink-2); font-size: 14px; display: block; }
+.request-card .note { font-size: 14px; color: var(--ink); margin-top: 4px; }
+.request-card .save-as { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.request-card .save-as input { width: 200px; min-height: 38px; padding: 6px 8px; }
+.add-staff { grid-template-columns: 1fr 1fr auto; }
+.bulk-add { margin: 0 0 8px; }
+.bulk-add summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.bulk-add textarea { margin: 6px 0; }
+@media (max-width: 760px) { .add-staff { grid-template-columns: 1fr; } }

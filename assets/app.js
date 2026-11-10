@@ -91,9 +91,30 @@
     gate: function (fn) {
       this.use(null);
       this.pending = fn;
+      this.step('gateSignin', 'Book the library');
+      if (this.ready) google.accounts.id.prompt();
+    },
+
+    /** Show one panel of the sign-in screen. */
+    step: function (id, title) {
       document.body.classList.add('is-gated');
       $('gate').hidden = false;
-      if (this.ready) google.accounts.id.prompt();
+      ['gateSignin', 'gateRequest', 'gatePending', 'gateDenied'].forEach(function (x) { $(x).hidden = x !== id; });
+      $('gateTitle').textContent = title;
+      $('gateError').hidden = true;
+      $('gateSwitch').hidden = id === 'gateSignin';
+      $('gateButton').hidden = false;
+      $('gateText').textContent = GATE_TEXT;
+      var email = this.session ? this.session.email : '';
+      document.querySelectorAll('.gate-email').forEach(function (el) { el.textContent = email; });
+    },
+
+    /** Signed in, but not (yet) on the approved staff list. */
+    showAccess: function (status) {
+      if (status === 'pending') return this.step('gatePending', 'Request sent');
+      if (status === 'denied') return this.step('gateDenied', 'No access');
+      this.step('gateRequest', 'Request access');
+      if (!$('reqName').value && this.session) $('reqName').value = this.session.name || '';
     },
 
     ungate: function () {
@@ -113,8 +134,8 @@
         $('signinError').hidden = true; $('gateError').hidden = true;
         var next = this.pending; this.pending = null;
         if ($('signinDialog').open) $('signinDialog').close();
-        this.ungate();
-        if (state.cfg) refreshMineIds();
+        if (state.cfg) { this.ungate(); refreshMineIds(); }
+        else { $('gateText').textContent = 'Signed in. Opening the calendar…'; $('gateButton').hidden = true; }
         if (next) next();
       } catch (e) { this.fail('Sign-in didn’t work. Please try again.'); }
     },
@@ -145,6 +166,7 @@
 
     fail: function (msg) {
       if (document.body.classList.contains('is-gated')) { $('gateError').textContent = msg; $('gateError').hidden = false; return; }
+      if (!state.cfg) { this.step('gateSignin', 'Book the library'); $('gateError').textContent = msg; $('gateError').hidden = false; return; }
       $('signinError').textContent = msg; $('signinError').hidden = false;
       if (!$('signinDialog').open && this.pending) $('signinDialog').showModal();
     },
@@ -167,10 +189,12 @@
 
   // ------------------------------------------------------------ Start-up
 
+  var GATE_TEXT = 'Sign in with your ' + (HOSTED_DOMAIN ? '@' + HOSTED_DOMAIN + ' ' : 'school ') + 'Google account to see the library calendar and book times.';
+
   function start() {
     if (Api.demo) $('demoNotice').hidden = false;
     bind();
-    if (HOSTED_DOMAIN) $('gateText').textContent = 'Sign in with your @' + HOSTED_DOMAIN + ' Google account to see the library calendar and book times.';
+    $('gateText').textContent = GATE_TEXT;
     if (Auth.enabled) {
       Auth.init();
       if (Auth.valid()) boot(); else Auth.gate(boot);
@@ -182,6 +206,7 @@
   function boot() {
     Api.call('init').then(function (cfg) {
       state.cfg = cfg;
+      Auth.ungate();
       applySettings();
       Auth.render();
       var params = new URLSearchParams(location.search);
@@ -198,6 +223,7 @@
       }
     }).catch(function (e) {
       if (e.auth) return Auth.expired(boot);
+      if (e.access) return Auth.showAccess(e.access);
       $('loading').textContent = e.message;
       $('gridWrap').classList.add('is-loading');
     });
@@ -248,6 +274,7 @@
       if (token !== state.loadToken) return;
       $('gridWrap').classList.remove('is-loading');
       if (e.auth) return Auth.expired(function () { loadWeek(true); });
+      if (e.access) return Auth.showAccess(e.access);
       toast(e.message, true);
     });
   }
@@ -449,8 +476,13 @@
     } else {
       teachers = (p.teachers || []).slice(); grades = p.grades || []; desc = $('desc').value;
       // First booking after signing in: start with the teacher's own name if it's on the staff list.
-      if (!teachers.length && Auth.valid() && Auth.session.family) {
-        var match = s.teachers.filter(function (t) { return t.toLowerCase() === Auth.session.family.toLowerCase(); })[0];
+      if (!teachers.length && Auth.valid()) {
+        var mine = [(state.cfg.me && state.cfg.me.name) || '', Auth.session.family || ''];
+        var listed = (state.cfg.me && state.cfg.me.name || '').split(/\s+/).pop();
+        mine.push(listed);
+        var match = s.teachers.filter(function (t) {
+          return mine.some(function (m) { return m && t.toLowerCase() === m.toLowerCase(); });
+        })[0];
         if (match) teachers = [match];
       }
     }
@@ -585,6 +617,7 @@
       loadWeek(true);
     }).catch(function (err) {
       if (err.auth) { btn.disabled = false; btn.textContent = label; return Auth.expired(function () { $('bookForm').requestSubmit(); }); }
+      if (err.access) { $('bookDialog').close(); return Auth.showAccess(err.access); }
       showFormError(err.message);
       if (/already booked|reserved|started|too soon/.test(err.message)) {
         delete state.cache[state.weekStart];
@@ -648,12 +681,18 @@
     });
   }
 
+  function mineFoot() {
+    if (!Auth.enabled || !Auth.session) return '';
+    return '<div class="mine-foot"><span>Signed in as ' + esc(Auth.session.email) + '</span>' +
+      '<button type="button" class="btn btn-quiet btn-small" data-signout>Sign out</button></div>';
+  }
+
   function renderMine(groups) {
     var s = state.cfg.settings;
     var order = Object.keys(groups);
     if (!order.length) {
       $('mineBody').innerHTML = '<p class="empty">No upcoming bookings' + (Auth.enabled ? ' for ' + esc(Auth.session ? Auth.session.email : 'you') + '.' :
-        ' made on this device. ' + (s.sendConfirmation && !Api.demo ? 'Booked on another device? Use the link in your confirmation email to manage it.' : '')) + '</p>';
+        ' made on this device. ' + (s.sendConfirmation && !Api.demo ? 'Booked on another device? Use the link in your confirmation email to manage it.' : '')) + '</p>' + mineFoot();
       return;
     }
     order.sort(function (a, b) { return groups[a][0].date < groups[b][0].date ? -1 : 1; });
@@ -667,7 +706,7 @@
         (s.allowTeacherCancel ? '<div class="mine-actions"><button type="button" class="btn btn-quiet btn-small" data-edit="' + esc(gid) + '">Change booking</button>' +
           (list.length > 1 ? '<button type="button" class="btn btn-danger btn-small" data-cancel="' + esc(gid) + '">Cancel all ' + list.length + '</button>' : '') + '</div>' : '') +
         '</section>';
-    }).join('') + (s.allowTeacherCancel ? '' : '<p class="muted">To change or cancel, please contact the librarian.</p>');
+    }).join('') + (s.allowTeacherCancel ? '' : '<p class="muted">To change or cancel, please contact the librarian.</p>') + mineFoot();
   }
 
   function cancelClick(btn) {
@@ -778,8 +817,29 @@
     $('mineBody').addEventListener('click', function (e) {
       var c = e.target.closest('[data-cancel]'); if (c) return cancelClick(c);
       var ed = e.target.closest('[data-edit]'); if (ed) startEdit(ed.dataset.edit);
+      if (e.target.closest('[data-signout]')) Auth.signOut();
     });
     $('signinDialog').addEventListener('close', function () { Auth.pending = null; });
+    $('gateSwitch').onclick = function () { Auth.signOut(); };
+    $('gateRecheck').onclick = function () {
+      var b = this; b.disabled = true; b.textContent = 'Checking…';
+      boot();
+      setTimeout(function () { b.disabled = false; b.textContent = 'Check again'; }, 2500);
+    };
+    $('gateRequest').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = $('reqName').value.trim();
+      if (!name) { $('gateError').textContent = 'Add your name so the librarian knows who you are.'; $('gateError').hidden = false; return; }
+      var b = $('reqSubmit'); b.disabled = true; b.textContent = 'Sending…';
+      Api.call('requestAccess', { name: name, note: $('reqNote').value.trim() }).then(function (r) {
+        if (r.access === 'approved') return boot();
+        Auth.showAccess('pending');
+      }).catch(function (err) {
+        if (err.auth) return Auth.expired(function () { Auth.showAccess('none'); });
+        if (err.access) return Auth.showAccess(err.access);
+        $('gateError').textContent = err.message; $('gateError').hidden = false;
+      }).then(function () { b.disabled = false; b.textContent = 'Request access'; });
+    });
 
     document.querySelectorAll('dialog').forEach(function (d) {
       d.addEventListener('click', function (e) {

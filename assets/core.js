@@ -55,7 +55,8 @@ var Core = (function () {
     notifyEmail: '',
     announcement: '',
     showLibrarian: true,
-    librarianLabel: "Where's Adams?"
+    librarianLabel: "Where's Adams?",
+    restrictToApproved: false
   };
 
   var DEFAULT_CALENDAR = [
@@ -573,6 +574,36 @@ var Core = (function () {
     return out;
   }
 
+  // ---------- Approved staff ----------
+  // Staff record: { email, name, status: 'approved'|'pending'|'denied', requested, decided, note }
+
+  function findStaff(list, email) {
+    email = String(email || '').toLowerCase();
+    for (var i = 0; i < list.length; i++) if (list[i].email === email) return list[i];
+    return null;
+  }
+
+  function accessErr(status) {
+    var msgs = {
+      none: 'You’re not on the library’s staff list yet. Request access and the librarian will review it.',
+      pending: 'Your access request is waiting for the librarian’s approval.',
+      denied: 'Your access request wasn’t approved. Please speak to the librarian.'
+    };
+    var e = err(msgs[status] || msgs.none); e.access = status || 'none'; return e;
+  }
+
+  function cleanEmail(v, s) {
+    var email = String(v || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw err('“' + v + '” isn’t an email address.');
+    if (s.emailDomain && email.slice(-(s.emailDomain.length + 1)) !== '@' + s.emailDomain.toLowerCase())
+      throw err(email + ' isn’t an @' + s.emailDomain + ' address.');
+    return email;
+  }
+
+  function sortStaff(list) {
+    return list.sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+  }
+
   /** Main entry point. Returns a plain object; throws user-facing errors. */
   function handle(action, p, store, now) {
     p = p || {};
@@ -582,10 +613,42 @@ var Core = (function () {
     };
     function loadBookings() { ctx.bookings = store.getBookings(); return ctx.bookings; }
 
+    // Only staff on the approved list may use the teacher side (needs a verified sign-in to know who it is).
+    var isAdminAction = String(action).indexOf('admin') === 0;
+    var me = null;
+    if (p.authEmail && !isAdminAction) {
+      me = findStaff(store.getStaff(), p.authEmail);
+      if (ctx.settings.restrictToApproved && action !== 'requestAccess' && (!me || me.status !== 'approved')) {
+        throw accessErr(me ? me.status : 'none');
+      }
+    }
+
     switch (action) {
       case 'init':
         return { settings: publicSettings(ctx.settings), calendar: ctx.calendar, statics: ctx.statics,
-          librarian: store.getLibrarian(), today: now.date, nowMinutes: now.minutes };
+          librarian: store.getLibrarian(), today: now.date, nowMinutes: now.minutes,
+          me: p.authEmail ? { email: p.authEmail, name: me && me.status === 'approved' ? me.name : '' } : null };
+
+      case 'requestAccess':
+        return store.withLock(function () {
+          if (!p.authEmail) throw err('Sign in with your school Google account first.');
+          var list = store.getStaff();
+          var rec = findStaff(list, p.authEmail);
+          if (rec && rec.status === 'approved') return { access: 'approved' };
+          if (rec && rec.status === 'denied') throw accessErr('denied');
+          var name = String(p.name || '').trim();
+          if (!name) throw err('Add your name so the librarian knows who you are.');
+          var note = String(p.note || '').trim().slice(0, 200);
+          if (!rec) { rec = { email: String(p.authEmail).toLowerCase() }; list.push(rec); }
+          rec.name = name; rec.status = 'pending'; rec.requested = now.stamp; rec.decided = ''; rec.note = note;
+          store.saveStaff(list);
+          if (ctx.settings.notifyEmail) {
+            safeMail(store, ctx.settings.notifyEmail, 'Library access request: ' + name,
+              name + ' (' + rec.email + ') asked to use library booking.' + (note ? '\n\nNote: ' + note : '') +
+              '\n\nApprove or deny it on the admin page:\n' + (ctx.settings.siteUrl || '') + '/admin.html');
+          }
+          return { access: 'pending' };
+        });
 
       case 'bookings':
         return { bookings: loadBookings().filter(function (b) {
@@ -687,6 +750,51 @@ var Core = (function () {
         store.saveLibrarian(p.librarian || {});
         return { librarian: p.librarian || {} };
 
+      case 'adminStaff':
+        checkAdmin(p, store);
+        return { staff: sortStaff(store.getStaff()) };
+
+      case 'adminStaffAdd':
+        checkAdmin(p, store);
+        return store.withLock(function () {
+          var list = store.getStaff(), added = 0, s = ctx.settings;
+          var entries = (p.entries || []).map(function (en) {
+            var name = String(en.name || '').trim();
+            if (!name) throw err('Every staff member needs a name (' + (en.email || 'no email') + ').');
+            return { name: name, email: cleanEmail(en.email, s) };
+          });
+          if (!entries.length) throw err('Add at least one name and email.');
+          entries.forEach(function (en) {
+            var rec = findStaff(list, en.email);
+            if (!rec) { rec = { email: en.email, requested: '', note: '' }; list.push(rec); added++; }
+            rec.name = en.name; rec.status = 'approved'; rec.decided = now.stamp;
+          });
+          store.saveStaff(list);
+          return { staff: sortStaff(list), added: added, updated: entries.length - added };
+        });
+
+      case 'adminStaffDecide':
+        checkAdmin(p, store);
+        return store.withLock(function () {
+          var list = store.getStaff(), s = ctx.settings;
+          var rec = findStaff(list, p.email);
+          if (!rec) throw err('That person isn’t on the list any more.');
+          if (p.decision === 'remove') {
+            list.splice(list.indexOf(rec), 1);
+          } else if (p.decision === 'approved' || p.decision === 'denied') {
+            var wasApproved = rec.status === 'approved';
+            rec.status = p.decision; rec.decided = now.stamp;
+            if (p.name != null && String(p.name).trim()) rec.name = String(p.name).trim();
+            if (p.decision === 'approved' && !wasApproved) {
+              safeMail(store, rec.email, 'You can now book the library',
+                'Hi ' + rec.name + ',\n\nYou now have access to library booking. Sign in with your school Google account here:\n' +
+                (s.siteUrl || '') + '\n\n— ' + s.schoolName + ' Library');
+            }
+          } else throw err('Unknown decision.');
+          store.saveStaff(list);
+          return { staff: sortStaff(list) };
+        });
+
       case 'adminSetPasscode':
         checkAdmin(p, store);
         if (String(p.newPasscode || '').length < 6) throw err('Use at least 6 characters for the passcode.');
@@ -701,7 +809,7 @@ var Core = (function () {
   return {
     DEFAULT_SETTINGS: DEFAULT_SETTINGS, DEFAULT_CALENDAR: DEFAULT_CALENDAR,
     DEFAULT_STATICS: DEFAULT_STATICS, DEFAULT_LIBRARIAN: DEFAULT_LIBRARIAN,
-    handle: handle, dayInfo: dayInfo, staticsFor: staticsFor, bookingLabel: bookingLabel,
+    handle: handle, findStaff: findStaff, dayInfo: dayInfo, staticsFor: staticsFor, bookingLabel: bookingLabel,
     addDays: addDays, mondayOf: mondayOf, weekday: weekday, toMinutes: toMinutes, fmtTime: fmtTime,
     fmtDateLong: fmtDateLong, fmtDateShort: fmtDateShort, isDateStr: isDateStr, slotIndex: slotIndex,
     MONTHS: MONTHS, DAYS: DAYS
