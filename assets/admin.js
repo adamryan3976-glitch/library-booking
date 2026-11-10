@@ -34,7 +34,7 @@
     return Api.call('adminLogin', { passcode: pass }).then(function (r) {
       st.settings = r.settings;
       try { sessionStorage.setItem(SS_KEY, pass); } catch (e) { }
-      return Api.call('init');
+      return Api.call('init', { passcode: pass });
     }).then(function (init) {
       st.calendar = init.calendar; st.statics = init.statics; st.librarian = init.librarian;
       $('loginView').hidden = true; $('adminView').hidden = false; $('logoutBtn').hidden = false;
