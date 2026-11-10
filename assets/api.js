@@ -4,15 +4,15 @@ var Api = (function () {
   var url = ((window.LIBRARY_CONFIG || {}).apiUrl || '').trim();
   var demo = !url;
   var GET_ACTIONS = { init: true, bookings: true };
-  var TEACHER_ACTIONS = { book: true, mine: true, cancel: true, update: true };
   var idToken = null;
 
   function call(action, payload) {
     payload = Object.assign({}, payload || {});
-    if (idToken && TEACHER_ACTIONS[action]) payload.idToken = idToken;
+    if (idToken && action.indexOf('admin') !== 0) payload.idToken = idToken;
     if (demo) return Demo.call(action, payload);
     var req;
-    if (GET_ACTIONS[action]) {
+    // Plain GETs only for requests that carry no sign-in token or passcode.
+    if (GET_ACTIONS[action] && !payload.idToken && !payload.passcode) {
       var q = new URLSearchParams({ action: action });
       Object.keys(payload).forEach(function (k) { q.set(k, payload[k]); });
       req = fetch(url + '?' + q.toString());
