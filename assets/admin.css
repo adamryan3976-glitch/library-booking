@@ -1,0 +1,97 @@
+/* Admin page additions */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mast-actions { display: flex; gap: 8px; }
+.small { font-size: 14px; }
+
+.login { display: flex; justify-content: center; padding-top: 60px; }
+.login-card {
+  width: min(400px, 100%); background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-l); padding: 28px; display: grid; gap: 12px;
+}
+.login-card h1 { margin: 0; font-size: 24px; }
+.login-card p { margin: 0; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; overflow-x: auto; scrollbar-width: none; }
+.tabs button {
+  border: 0; background: none; padding: 12px 14px; font-weight: 700; color: var(--ink-2); cursor: pointer;
+  border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--ink); }
+
+.panel h2 { margin: 0 0 4px; font-size: 24px; letter-spacing: -.01em; }
+.panel h3 { margin: 28px 0 8px; font-size: 18px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.panel h3:first-of-type { border-top: 0; padding-top: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.panel-head p { margin: 0; max-width: 70ch; }
+
+.filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+.filters label { display: flex; flex-direction: column; font-size: 14px; font-weight: 700; gap: 4px; }
+.filters label.grow { flex: 1; min-width: 200px; }
+.filters .check { flex-direction: row; align-self: center; margin: 0; }
+
+.bulk { display: flex; align-items: center; gap: 12px; background: var(--stamp-wash); padding: 8px 12px; border-radius: var(--radius-s); margin-bottom: 8px; }
+
+.table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-m); }
+.table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.table th { text-align: left; font-size: 13px; color: var(--ink-2); padding: 10px; border-bottom: 1px solid var(--line); background: #FAFBFC; white-space: nowrap; }
+.table td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.table tr:last-child td { border-bottom: 0; }
+.table .col-check { width: 36px; }
+.table td.nowrap { white-space: nowrap; }
+.table td.rep b { visibility: hidden; }
+.table tr.is-cancelled td { color: var(--ink-3); text-decoration: line-through; }
+.table tr.is-cancelled td:last-child { text-decoration: none; }
+.table tr.day-start td { border-top: 2px solid var(--line); }
+.table .actions { white-space: nowrap; text-align: right; }
+.table .actions .btn { margin-left: 4px; }
+.table .src { font-size: 12px; color: var(--ink-3); display: block; }
+.table-edit td { padding: 6px; }
+.table-edit input, .table-edit select { min-height: 38px; padding: 6px 8px; }
+.table-edit input[type=checkbox] { width: 20px; height: 20px; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px 20px; margin-bottom: 12px; }
+.form-grid.tight { grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid > label { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 15px; }
+.form-grid > label.wide { grid-column: 1 / -1; }
+.form-grid > label small { font-weight: 400; color: var(--ink-2); font-size: 13px; }
+.form-grid > label.check { flex-direction: row; align-items: center; font-weight: 700; color: var(--ink); font-size: 15px; margin: 0; }
+.align-end { display: flex; align-items: flex-end; }
+
+.savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 14px 0; background: linear-gradient(transparent, var(--paper) 30%); margin-top: 12px; }
+
+.stack { display: grid; gap: 12px; }
+.static-card { background: var(--card); border: 1px solid var(--line); border-left: 4px dashed var(--reserved); border-radius: var(--radius-m); padding: 14px; display: grid; gap: 12px; }
+.static-card .row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; }
+.static-card label { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 14px; }
+.static-card .toggles { margin: 0; }
+.static-card .toggle span { min-width: 40px; min-height: 36px; font-size: 14px; }
+.static-card .foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.static-card .foot small { color: var(--ink-2); }
+.minilabel { font-weight: 700; font-size: 14px; margin-bottom: 4px; display: block; }
+
+.cycle-check { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px 12px; font-size: 14.5px; }
+
+.edit-only { display: none; }
+#editDialog.is-edit .edit-only { display: block; }
+#editDialog.is-edit .new-only { display: none; }
+
+@media (max-width: 760px) {
+  #bookingTable thead { display: none; }
+  #bookingTable tr { display: grid; grid-template-columns: 28px 1fr auto; gap: 2px 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+  #bookingTable tr.day-start { border-top: 2px solid var(--line); }
+  #bookingTable td { border: 0; padding: 0; }
+  #bookingTable .col-check { grid-row: 1 / span 5; padding-top: 2px; }
+  #bookingTable .c-date { grid-column: 2 / -1; }
+  #bookingTable .c-date.rep { display: none; }
+  #bookingTable .c-date.rep b { visibility: visible; }
+  #bookingTable .c-slot { grid-column: 2; font-weight: 700; }
+  #bookingTable .c-who, #bookingTable .c-gr, #bookingTable .c-desc, #bookingTable .c-by { grid-column: 2 / -1; }
+  #bookingTable .c-gr:not(:empty)::before { content: 'Grade(s) '; color: var(--ink-2); }
+  #bookingTable .actions { grid-column: 3; grid-row: 2; text-align: right; }
+  #bookingTable tr.day-start .actions { grid-row: 2; }
+  .table-wrap:has(#bookingTable) { overflow: visible; }
+  .static-card .row { grid-template-columns: 1fr 1fr; }
+  .static-card .row label:first-child { grid-column: 1 / -1; }
+  .form-grid.tight { grid-template-columns: 1fr; }
+  .mast-actions a { display: none; }
+}

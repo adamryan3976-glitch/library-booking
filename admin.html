@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Library Admin – Winchester P.S.</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#1B2440">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/admin.css">
+</head>
+<body class="admin">
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="brand" href="./">
+        <span class="brand-school" data-bind="schoolName">Winchester P.S.</span>
+        <span class="brand-title">Library Admin</span>
+      </a>
+      <div class="mast-actions">
+        <a class="btn btn-ghost-light" href="./">Booking page</a>
+        <button class="btn btn-ghost-light" id="logoutBtn" type="button" hidden>Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="notice notice-demo" id="demoNotice" hidden>
+    Demo mode: changes are saved only in this browser. The demo passcode is <code>changeme</code>.
+    <button class="btn btn-quiet btn-small" id="resetDemo" type="button">Reset demo data</button>
+  </div>
+
+  <!-- Sign in -->
+  <main class="page login" id="loginView">
+    <form class="login-card" id="loginForm">
+      <h1>Librarian sign in</h1>
+      <p class="muted">Enter the admin passcode to manage bookings and settings.</p>
+      <label for="passcode" class="sr-only">Passcode</label>
+      <input type="password" id="passcode" autocomplete="current-password" placeholder="Passcode" required>
+      <p class="form-error" id="loginError" hidden></p>
+      <button class="btn btn-primary" type="submit" id="loginBtn">Sign in</button>
+    </form>
+  </main>
+
+  <main class="page" id="adminView" hidden>
+    <nav class="tabs" role="tablist" aria-label="Admin sections">
+      <button role="tab" type="button" data-tab="bookings" aria-selected="true">Bookings</button>
+      <button role="tab" type="button" data-tab="statics" aria-selected="false">Recurring</button>
+      <button role="tab" type="button" data-tab="calendar" aria-selected="false">School calendar</button>
+      <button role="tab" type="button" data-tab="librarian" aria-selected="false">Librarian schedule</button>
+      <button role="tab" type="button" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+
+    <!-- Bookings -->
+    <section class="panel" data-panel="bookings">
+      <div class="panel-head">
+        <div>
+          <h2>Bookings</h2>
+          <p class="muted">Every booking also appears in the “App Bookings” tab of the Google Sheet.</p>
+        </div>
+        <button class="btn btn-primary" id="addBookingBtn" type="button">Add a booking</button>
+      </div>
+      <div class="filters">
+        <label>From <input type="date" id="fFrom"></label>
+        <label>To <input type="date" id="fTo"></label>
+        <label class="grow">Search <input type="text" id="fSearch" placeholder="Teacher, grade, activity or email"></label>
+        <label class="check"><input type="checkbox" id="fCancelled"> Show cancelled</label>
+      </div>
+      <div class="bulk" id="bulkBar" hidden>
+        <span id="bulkCount"></span>
+        <button class="btn btn-danger btn-small" id="bulkCancel" type="button">Cancel selected</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="bookingTable">
+          <thead><tr>
+            <th class="col-check"><input type="checkbox" id="checkAll" aria-label="Select all"></th>
+            <th>Date</th><th>Time</th><th>Teacher(s)</th><th>Grade(s)</th><th>Activity</th><th>Booked by</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="bookingEmpty" hidden>No bookings in this date range.</p>
+    </section>
+
+    <!-- Recurring / static bookings -->
+    <section class="panel" data-panel="statics" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Recurring bookings</h2>
+          <p class="muted">Standing reservations that block a time on a cycle day, a weekday, or one date. Teachers see them as “Reserved”.</p>
+        </div>
+        <button class="btn btn-quiet" id="addStatic" type="button">Add recurring booking</button>
+      </div>
+      <div id="staticList" class="stack"></div>
+      <div class="savebar"><button class="btn btn-primary" id="saveStatics" type="button">Save recurring bookings</button></div>
+    </section>
+
+    <!-- Calendar -->
+    <section class="panel" data-panel="calendar" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>School calendar</h2>
+          <p class="muted">Closed days can’t be booked and are skipped when counting cycle days. Events show under the date. Use “Set cycle day” if the board shifts the cycle.</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label>First day of classes (Day 1)<input type="date" id="sYearStart"></label>
+        <label>Last day of school year<input type="date" id="sYearEnd"></label>
+        <label>Days in the cycle<input type="number" id="sCycleLength" min="1" max="10"></label>
+      </div>
+      <p class="cycle-check" id="cycleCheck"></p>
+      <div class="table-wrap">
+        <table class="table table-edit" id="calTable">
+          <thead><tr><th>Start</th><th>End</th><th>Label</th><th>Type</th><th>Set cycle day</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="savebar">
+        <button class="btn btn-quiet" id="addCal" type="button">Add a date</button>
+        <button class="btn btn-primary" id="saveCal" type="button">Save calendar</button>
+      </div>
+    </section>
+
+    <!-- Librarian -->
+    <section class="panel" data-panel="librarian" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Librarian schedule</h2>
+          <p class="muted">Where the librarian is for each cycle day. Teachers see this note under a time when it says anything other than “Library”.</p>
+        </div>
+      </div>
+      <div class="form-grid">
+        <label class="check"><input type="checkbox" id="sShowLibrarian"> Show the librarian’s location on the booking page</label>
+        <label>Label<input type="text" id="sLibrarianLabel"></label>
+      </div>
+      <div class="table-wrap">
+        <table class="table table-edit" id="libTable"><thead></thead><tbody></tbody></table>
+      </div>
+      <div class="savebar"><button class="btn btn-primary" id="saveLib" type="button">Save librarian schedule</button></div>
+    </section>
+
+    <!-- Settings -->
+    <section class="panel" data-panel="settings" hidden>
+      <div class="panel-head"><div><h2>Settings</h2></div></div>
+
+      <h3>Booking rules</h3>
+      <div class="form-grid">
+        <label class="check"><input type="checkbox" id="sBookingsOpen"> Teachers can book online</label>
+        <label class="wide">Message when booking is paused<input type="text" id="sClosedMessage"></label>
+        <label>How far ahead teachers can book (days)<input type="number" id="sWindowDays" min="0"></label>
+        <label>Minimum notice before a time starts (minutes)<input type="number" id="sMinNotice" min="0"></label>
+        <label>Most times in one booking<input type="number" id="sMaxPerBooking" min="0"><small>0 = no limit</small></label>
+        <label>Most times per teacher per week<input type="number" id="sMaxPerWeek" min="0"><small>0 = no limit. Counted by email.</small></label>
+        <label class="check"><input type="checkbox" id="sAllowCancel"> Teachers can cancel their own bookings</label>
+      </div>
+
+      <h3>Time slots</h3>
+      <p class="muted">Untick “Bookable” to show a time without letting teachers book it.</p>
+      <div class="table-wrap">
+        <table class="table table-edit" id="slotTable">
+          <thead><tr><th>Name</th><th>Start</th><th>End</th><th>Bookable</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button class="btn btn-quiet btn-small" id="addSlot" type="button">Add a time slot</button>
+
+      <h3>Spaces</h3>
+      <div class="form-grid">
+        <label class="wide">Bookable spaces, one per line<textarea id="sSpaces" rows="2"></textarea>
+          <small>With more than one space, each time shows a separate slot per space (for example “Teaching Space” and “Collaboration Space”). Renaming a space hides bookings made under its old name, so add new spaces rather than renaming ones already in use.</small></label>
+      </div>
+
+      <h3>Teachers and grades</h3>
+      <div class="form-grid">
+        <label>Staff names, one per line<textarea id="sTeachers" rows="10"></textarea></label>
+        <label>Grade buttons, one per line<textarea id="sGrades" rows="10"></textarea></label>
+        <label class="check"><input type="checkbox" id="sAllowOther"> Allow names that aren’t on the staff list</label>
+        <label>Required email domain<input type="text" id="sEmailDomain" placeholder="ddsb.ca"><small>Leave blank to accept any email.</small></label>
+      </div>
+
+      <h3>Emails</h3>
+      <div class="form-grid">
+        <label class="check"><input type="checkbox" id="sSendConfirm"> Email teachers a confirmation with a cancel link</label>
+        <label>Send me a copy of new and cancelled bookings<input type="email" id="sNotifyEmail" placeholder="librarian@ddsb.ca"></label>
+      </div>
+
+      <h3>Page text</h3>
+      <div class="form-grid">
+        <label>School name<input type="text" id="sSchoolName"></label>
+        <label>Page title<input type="text" id="sSiteTitle"></label>
+        <label class="wide">Announcement banner<input type="text" id="sAnnouncement" placeholder="e.g. Book fair in the library Dec 1–5. Bookings limited."><small>Shown at the top of the booking page. Leave blank to hide.</small></label>
+        <label class="wide">Website address (used in email links)<input type="text" id="sSiteUrl"></label>
+      </div>
+
+      <div class="savebar"><button class="btn btn-primary" id="saveSettings" type="button">Save settings</button></div>
+
+      <h3>Admin passcode</h3>
+      <div class="form-grid">
+        <label>New passcode<input type="password" id="newPass" autocomplete="new-password" minlength="6"></label>
+        <div class="align-end"><button class="btn btn-quiet" id="savePass" type="button">Change passcode</button></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add / edit booking -->
+  <dialog class="sheet" id="editDialog" aria-labelledby="editTitle">
+    <form id="editForm" novalidate>
+      <header class="sheet-head">
+        <h2 id="editTitle">Add a booking</h2>
+        <button class="btn btn-icon" type="button" data-close aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="sheet-body">
+        <div class="new-only">
+          <div class="form-grid tight">
+            <label>Date<input type="date" id="eDate"></label>
+            <label id="eSpaceWrap">Space<select id="eSpace"></select></label>
+          </div>
+          <p class="muted small" id="eDayInfo"></p>
+          <fieldset class="field">
+            <legend>Times</legend>
+            <div class="toggles" id="eSlots"></div>
+          </fieldset>
+        </div>
+        <p class="edit-only muted" id="eWhen"></p>
+        <div class="field"><label for="eTeachers">Teacher(s)</label><input type="text" id="eTeachers" placeholder="e.g. Cole, Adams"></div>
+        <div class="field"><label for="eGrades">Grade(s)</label><input type="text" id="eGrades" placeholder="e.g. 7, 8"></div>
+        <div class="field"><label for="eDesc">Activity</label><input type="text" id="eDesc"></div>
+        <div class="field new-only"><label for="eEmail">Teacher email (optional)</label><input type="email" id="eEmail"></div>
+        <p class="muted small new-only">Admin bookings skip the booking-window and notice rules, but can’t double-book a time.</p>
+        <p class="form-error" id="editError" hidden></p>
+      </div>
+      <footer class="sheet-foot">
+        <button class="btn btn-quiet" type="button" data-close>Cancel</button>
+        <button class="btn btn-primary" type="submit" id="editSubmit">Save booking</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/core.js"></script>
+  <script src="assets/api.js"></script>
+  <script src="assets/admin.js"></script>
+</body>
+</html>
