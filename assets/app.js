@@ -5,6 +5,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var LS_PROFILE = 'wps-library-profile', LS_GROUPS = 'wps-library-groups', LS_AUTH = 'wps-library-auth';
   var CLIENT_ID = ((window.LIBRARY_CONFIG || {}).googleClientId || '').trim();
+  var HOSTED_DOMAIN = ((window.LIBRARY_CONFIG || {}).googleHostedDomain || '').trim().toLowerCase();
 
   var state = {
     cfg: null, weekStart: null, cache: {}, loadedAt: {}, selected: {}, dayIndex: 0,
@@ -65,35 +66,55 @@
     },
 
     setup: function () {
-      var s = state.cfg ? state.cfg.settings : {};
       google.accounts.id.initialize({
         client_id: CLIENT_ID,
         callback: function (r) { Auth.onCredential(r); },
         auto_select: true,
-        hd: s.emailDomain || undefined,
+        hd: HOSTED_DOMAIN || undefined,
         use_fedcm_for_prompt: true,
         itp_support: true,
         cancel_on_tap_outside: false
       });
-      google.accounts.id.renderButton($('gsiButton'), { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 });
+      var look = { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 };
+      google.accounts.id.renderButton($('gsiButton'), look);
+      google.accounts.id.renderButton($('gateButton'), look);
       this.ready = true;
       // Returning teachers get signed back in quietly when their sign-in has run out.
-      if (!this.valid() && load(LS_AUTH + '-seen', false)) google.accounts.id.prompt();
+      if (!this.valid()) google.accounts.id.prompt();
+      // Sign-ins last about an hour; renew quietly a few minutes before that.
+      setInterval(function () {
+        if (Auth.session && Auth.session.exp * 1000 - Date.now() < 5 * 60000) google.accounts.id.prompt();
+      }, 60000);
+    },
+
+    /** Cover the page until the teacher signs in, then run fn. */
+    gate: function (fn) {
+      this.use(null);
+      this.pending = fn;
+      document.body.classList.add('is-gated');
+      $('gate').hidden = false;
+      if (this.ready) google.accounts.id.prompt();
+    },
+
+    ungate: function () {
+      document.body.classList.remove('is-gated');
+      $('gate').hidden = true;
     },
 
     onCredential: function (resp) {
       try {
         var c = JSON.parse(decodeURIComponent(escape(atob(resp.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
-        var domain = state.cfg && state.cfg.settings.emailDomain;
+        var domain = HOSTED_DOMAIN || (state.cfg && state.cfg.settings.emailDomain) || '';
         if (domain && String(c.email).toLowerCase().slice(-(domain.length + 1)) !== '@' + domain.toLowerCase()) {
-          return this.fail('Please sign in with your @' + domain + ' account.');
+          return this.fail('That’s not a school account. Please sign in with your @' + domain + ' Google account.');
         }
         this.use({ token: resp.credential, exp: c.exp, email: String(c.email).toLowerCase(), name: c.name || '', given: c.given_name || '', family: c.family_name || '' });
         save(LS_AUTH, this.session); save(LS_AUTH + '-seen', true);
-        $('signinError').hidden = true;
+        $('signinError').hidden = true; $('gateError').hidden = true;
         var next = this.pending; this.pending = null;
         if ($('signinDialog').open) $('signinDialog').close();
-        refreshMineIds();
+        this.ungate();
+        if (state.cfg) refreshMineIds();
         if (next) next();
       } catch (e) { this.fail('Sign-in didn’t work. Please try again.'); }
     },
@@ -119,14 +140,20 @@
     signOut: function () {
       if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
       forget(LS_AUTH); forget(LS_AUTH + '-seen');
-      this.use(null); state.mineIds = {};
-      exitEdit(true); render();
-      toast('Signed out');
+      location.replace(location.pathname);
     },
 
     fail: function (msg) {
+      if (document.body.classList.contains('is-gated')) { $('gateError').textContent = msg; $('gateError').hidden = false; return; }
       $('signinError').textContent = msg; $('signinError').hidden = false;
       if (!$('signinDialog').open && this.pending) $('signinDialog').showModal();
+    },
+
+    /** A request was turned away because the sign-in ran out: sign in again, then retry. */
+    expired: function (retry) {
+      this.use(null); forget(LS_AUTH);
+      if (!state.cfg) return this.gate(retry);
+      this.require(retry);
     },
 
     render: function () {
@@ -143,10 +170,20 @@
   function start() {
     if (Api.demo) $('demoNotice').hidden = false;
     bind();
+    if (HOSTED_DOMAIN) $('gateText').textContent = 'Sign in with your @' + HOSTED_DOMAIN + ' Google account to see the library calendar and book times.';
+    if (Auth.enabled) {
+      Auth.init();
+      if (Auth.valid()) boot(); else Auth.gate(boot);
+    } else {
+      boot();
+    }
+  }
+
+  function boot() {
     Api.call('init').then(function (cfg) {
       state.cfg = cfg;
       applySettings();
-      Auth.init();
+      Auth.render();
       var params = new URLSearchParams(location.search);
       var startDate = params.get('date');
       state.weekStart = Core.mondayOf(Core.isDateStr(startDate) ? startDate : torontoNow().date);
@@ -160,6 +197,7 @@
         refreshMineIds();
       }
     }).catch(function (e) {
+      if (e.auth) return Auth.expired(boot);
       $('loading').textContent = e.message;
       $('gridWrap').classList.add('is-loading');
     });
@@ -209,6 +247,7 @@
     }).catch(function (e) {
       if (token !== state.loadToken) return;
       $('gridWrap').classList.remove('is-loading');
+      if (e.auth) return Auth.expired(function () { loadWeek(true); });
       toast(e.message, true);
     });
   }
@@ -545,7 +584,7 @@
       }
       loadWeek(true);
     }).catch(function (err) {
-      if (err.auth) { Auth.use(null); forget(LS_AUTH); btn.disabled = false; btn.textContent = label; return Auth.require(function () { $('bookForm').requestSubmit(); }); }
+      if (err.auth) { btn.disabled = false; btn.textContent = label; return Auth.expired(function () { $('bookForm').requestSubmit(); }); }
       showFormError(err.message);
       if (/already booked|reserved|started|too soon/.test(err.message)) {
         delete state.cache[state.weekStart];
@@ -604,7 +643,7 @@
     if (!$('mineDialog').open) $('mineDialog').showModal();
     if (!state.groups.length && !Auth.valid()) { renderMine({}); return; }
     fetchMine().then(renderMine).catch(function (e) {
-      if (e.auth) { Auth.use(null); forget(LS_AUTH); $('mineDialog').close(); return Auth.require(openMine); }
+      if (e.auth) { $('mineDialog').close(); return Auth.expired(openMine); }
       $('mineBody').innerHTML = '<p class="form-error">' + esc(e.message) + '</p>';
     });
   }
@@ -644,7 +683,11 @@
       state.cache = {};
       loadWeek(true);
       openMine();
-    }).catch(function (e) { toast(e.message, true); btn.disabled = false; btn.textContent = btn.dataset.label; btn.classList.remove('is-confirm'); });
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = btn.dataset.label; btn.classList.remove('is-confirm');
+      if (e.auth) return Auth.expired(openMine);
+      toast(e.message, true);
+    });
   }
 
   // ------------------------------------------------------------ Events
