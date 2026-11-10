@@ -4,5 +4,5 @@
  * this browser — handy for trying things out.
  */
 window.LIBRARY_CONFIG = {
-  apiUrl: ''
+  apiUrl: 'https://script.google.com/macros/s/AKfycbwMxUBOyLMh_RrA4Ms0IAWpfH7-slFFPvg0SdK7XrAgt8pIBLLP6TIrcWTC1oV4AwjVPw/exec'
 };
