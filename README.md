@@ -126,7 +126,19 @@ Without this, anyone with the link can see the calendar, and teachers type their
 
 > **If teachers see "Access blocked" or "This app is blocked by your administrator,"** DDSB's Google settings don't allow sign-in to apps they haven't approved. Ask DDSB IT to trust the app's Client ID (Admin console → Security → API controls → App access control). Until then, clear `googleClientId` in `config.js` (and `GOOGLE_CLIENT_ID` in `BookingApi.gs`), and the site goes back to typed emails.
 
-### 8. Switch teachers over
+### 8. Optional: only approved staff
+
+With Google sign-in on, you can limit the site to a list of approved staff. This is under **Admin → Staff access**.
+
+1. **Add yourself first**, then the rest of your staff. You can add them one at a time, or use **Add many at once** and paste one person per line as `Name, email`. Two columns pasted from a spreadsheet work too.
+2. Tick **Only approved staff can use the booking site** and click **Save**. It won't let you switch it on while the list is empty.
+3. From then on, a signed-in teacher who isn't on the list gets a **Request access** form (name and an optional note) instead of the calendar. You get an email if *Send me a copy…* is set in Settings, and a number appears on the **Staff access** tab.
+4. **Approve** adds them to the list and emails them that they're in. **Deny** shows them a "speak to the librarian" message, and they can't request again unless you remove them from the Denied list.
+5. **Remove** takes someone off the list. Next time they open the site, they're back to the request screen.
+
+The list is saved in an **App Staff** tab in the Google Sheet, which is created automatically the first time it's needed.
+
+### 9. Switch teachers over
 
 - On the Google Site, replace the embedded sheet and form with a link to (or an embed of) `https://library.winchesterps.ca`.
 - In the Google Form, turn off **Accepting responses**. Set the closed message to *"Library booking has moved to library.winchesterps.ca"*.
@@ -147,7 +159,8 @@ Without this, anyone with the link can see the calendar, and teachers type their
 | Show a message at the top of the booking page | Admin → **Settings → Announcement banner** |
 | Rename or retime periods, or add a slot | Admin → **Settings → Time slots** |
 | Add a second bookable space (e.g. Collaboration Space) | Admin → **Settings → Spaces** |
-| Add or remove staff names | Admin → **Settings → Teachers and grades** |
+| Add or remove staff names in the booking form's name list | Admin → **Settings → Teachers and grades** |
+| Approve, deny or remove who can sign in | Admin → **Staff access** |
 | Get a full record or a spreadsheet export | The **App Bookings** tab in the Google Sheet |
 
 **New school year:** On **School calendar**:
@@ -155,6 +168,20 @@ Without this, anyone with the link can see the calendar, and teachers type their
 1. Update *First day of classes* and *Last day of school year*.
 2. Delete last year's rows and add the new board dates.
 3. Check that the "Check:" line shows the right cycle days.
+
+## Logo and home-screen icon
+
+The knight-and-book logo is used as:
+- the browser tab icon (`assets/favicon.ico`, `assets/favicon-32.png`)
+- the logo in the page header and sign-in screen (`assets/logo-96.png`, `assets/logo-256.png`)
+- the home-screen icon on iPhone/iPad (`assets/apple-touch-icon.png`)
+- the home-screen icon on Android/Chrome (`manifest.webmanifest`, `assets/icon-*.png`)
+
+To add it to a phone's home screen:
+- **iPhone:** Safari → Share → **Add to Home Screen**.
+- **Android:** Chrome → ⋮ menu → **Add to Home screen** or **Install app**.
+
+It then opens full-screen like an app. To change the logo, replace those image files with new ones of the same names and sizes.
 
 ## Changing the code later
 

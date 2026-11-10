@@ -6,7 +6,14 @@
   <title>Library Admin – Winchester P.S.</title>
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#1B2440">
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon.ico" sizes="any">
+  <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Library">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -17,8 +24,11 @@
   <header class="masthead">
     <div class="masthead-inner">
       <a class="brand" href="./">
+        <img class="brand-logo" src="assets/logo-96.png" width="48" height="48" alt="">
+        <span class="brand-text">
         <span class="brand-school" data-bind="schoolName">Winchester P.S.</span>
         <span class="brand-title">Library Admin</span>
+      </span>
       </a>
       <div class="mast-actions">
         <a class="btn btn-ghost-light" href="./">Booking page</a>
@@ -47,6 +57,7 @@
   <main class="page" id="adminView" hidden>
     <nav class="tabs" role="tablist" aria-label="Admin sections">
       <button role="tab" type="button" data-tab="bookings" aria-selected="true">Bookings</button>
+      <button role="tab" type="button" data-tab="staff" aria-selected="false">Staff access <span class="badge" id="staffBadge" hidden></span></button>
       <button role="tab" type="button" data-tab="statics" aria-selected="false">Recurring</button>
       <button role="tab" type="button" data-tab="calendar" aria-selected="false">School calendar</button>
       <button role="tab" type="button" data-tab="librarian" aria-selected="false">Librarian schedule</button>
@@ -82,6 +93,59 @@
         </table>
       </div>
       <p class="empty" id="bookingEmpty" hidden>No bookings in this date range.</p>
+    </section>
+
+    <!-- Staff access -->
+    <section class="panel" data-panel="staff" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Staff access</h2>
+          <p class="muted">Who can sign in to the booking site. Staff who aren’t on the list can ask for access, and their requests show up here.</p>
+        </div>
+      </div>
+
+      <div class="restrict-box">
+        <label class="check"><input type="checkbox" id="sRestrict"> Only approved staff can use the booking site</label>
+        <p class="muted small" id="restrictHint">Turn this on after you’ve added your staff, so nobody gets locked out. Needs Google sign-in.</p>
+        <button class="btn btn-quiet btn-small" id="saveRestrict" type="button">Save</button>
+      </div>
+
+      <h3 id="pendingHead">Waiting for approval</h3>
+      <div id="pendingList" class="stack"></div>
+
+      <h3>Add staff</h3>
+      <form class="form-grid add-staff" id="addStaffForm" novalidate>
+        <label>Name<input type="text" id="newStaffName" placeholder="e.g. Jane Shepherd"></label>
+        <label>School Google email<input type="email" id="newStaffEmail" placeholder="name@ddsb.ca"></label>
+        <div class="align-end"><button class="btn btn-primary" type="submit" id="addStaffBtn">Add</button></div>
+      </form>
+      <details class="bulk-add">
+        <summary>Add many at once</summary>
+        <label class="sr-only" for="bulkStaff">Staff list</label>
+        <textarea id="bulkStaff" rows="6" placeholder="One person per line: Name, email&#10;Jane Shepherd, jane.shepherd@ddsb.ca&#10;Sam Cole, sam.cole@ddsb.ca"></textarea>
+        <p class="muted small">You can paste two columns straight from a spreadsheet, too.</p>
+        <button class="btn btn-quiet" type="button" id="bulkStaffBtn">Add all</button>
+      </details>
+
+      <h3>Approved staff <span class="count" id="approvedCount"></span></h3>
+      <div class="filters"><label class="grow">Search <input type="text" id="staffSearch" placeholder="Name or email"></label></div>
+      <div class="table-wrap">
+        <table class="table" id="staffTable">
+          <thead><tr><th>Name</th><th>Email</th><th>Approved</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="staffEmpty" hidden>No approved staff yet. Add yourself first.</p>
+
+      <div id="deniedWrap" hidden>
+        <h3>Denied</h3>
+        <div class="table-wrap">
+          <table class="table" id="deniedTable">
+            <thead><tr><th>Name</th><th>Email</th><th>Denied</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- Recurring / static bookings -->

@@ -6,7 +6,14 @@
   <title>Library Booking – Winchester P.S.</title>
   <meta name="description" content="Book the Winchester Public School library for your class.">
   <meta name="theme-color" content="#1B2440">
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon.ico" sizes="any">
+  <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Library">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -16,8 +23,11 @@
   <header class="masthead">
     <div class="masthead-inner">
       <a class="brand" href="./">
+        <img class="brand-logo" src="assets/logo-96.png" width="48" height="48" alt="">
+        <span class="brand-text">
         <span class="brand-school" data-bind="schoolName">Winchester P.S.</span>
         <span class="brand-title" data-bind="siteTitle">Library Booking</span>
+      </span>
       </a>
       <div class="mast-actions">
         <div class="who-chip" id="whoChip" hidden>
@@ -38,12 +48,35 @@
 
   <main class="gate" id="gate" hidden>
     <div class="gate-card">
-      <svg class="gate-mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1B2440"/><g fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"><path d="M14 18h14a4 4 0 0 1 4 4v26a4 4 0 0 0-4-4H14z"/><path d="M50 18H36a4 4 0 0 0-4 4v26a4 4 0 0 1 4-4h14z"/></g></svg>
-      <h1>Book the library</h1>
-      <p id="gateText">Sign in with your school Google account to see the library calendar and book times.</p>
-      <div class="gsi-slot" id="gateButton"></div>
+      <img class="gate-logo" src="assets/logo-256.png" width="128" height="128" alt="">
+      <h1 id="gateTitle">Book the library</h1>
+
+      <div class="gate-step" id="gateSignin">
+        <p id="gateText">Sign in with your school Google account to see the library calendar and book times.</p>
+        <div class="gsi-slot" id="gateButton"></div>
+      </div>
+
+      <form class="gate-step" id="gateRequest" hidden novalidate>
+        <p>You’re signed in as <b class="gate-email"></b>, but you’re not on the library’s staff list yet. Ask for access and the librarian will review it.</p>
+        <label>Your name<input type="text" id="reqName" autocomplete="name" required></label>
+        <label>Note for the librarian <span class="opt">(optional)</span><input type="text" id="reqNote" maxlength="200" placeholder="e.g. Grade 3, Room 104"></label>
+        <button class="btn btn-primary" type="submit" id="reqSubmit">Request access</button>
+      </form>
+
+      <div class="gate-step" id="gatePending" hidden>
+        <p>Your request is with the librarian. You’ll get an email at <b class="gate-email"></b> once it’s approved.</p>
+        <button class="btn btn-quiet" type="button" id="gateRecheck">Check again</button>
+      </div>
+
+      <div class="gate-step" id="gateDenied" hidden>
+        <p>Your access request for <b class="gate-email"></b> wasn’t approved. If you think that’s a mistake, please speak to the librarian.</p>
+      </div>
+
       <p class="form-error" id="gateError" role="alert" hidden></p>
-      <p class="gate-foot"><a href="admin.html">Librarian admin</a></p>
+      <p class="gate-foot">
+        <button class="linklike" type="button" id="gateSwitch" hidden>Use a different account</button>
+        <a href="admin.html">Librarian admin</a>
+      </p>
     </div>
   </main>
 
