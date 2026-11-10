@@ -3,18 +3,24 @@
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
-  var LS_PROFILE = 'wps-library-profile', LS_GROUPS = 'wps-library-groups';
+  var LS_PROFILE = 'wps-library-profile', LS_GROUPS = 'wps-library-groups', LS_AUTH = 'wps-library-auth';
+  var CLIENT_ID = ((window.LIBRARY_CONFIG || {}).googleClientId || '').trim();
 
   var state = {
     cfg: null, weekStart: null, cache: {}, loadedAt: {}, selected: {}, dayIndex: 0,
     profile: load(LS_PROFILE, { teachers: [], email: '', grades: [] }),
-    groups: load(LS_GROUPS, []),
+    groups: load(LS_GROUPS, []),     // { groupId, token } for bookings made on this device or opened from an email link
+    mineIds: {},                     // groupIds known to belong to this teacher (for highlighting)
+    mineGroups: {},                  // groupId -> bookings, from the last "My bookings" load
+    editing: null,                   // { groupId, rows, remove: {id: true} } while changing a booking
     draftTeachers: [], loadToken: 0
   };
 
   function load(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } }
+  function forget(k) { try { localStorage.removeItem(k); } catch (e) { } }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function split(v) { return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
 
   function torontoNow() {
     var parts = {};
@@ -31,14 +37,116 @@
   }
 
   function isMobile() { return window.matchMedia('(max-width: 899px)').matches; }
+  function slotOf(name) { var s = state.cfg.settings; return s.slots[Core.slotIndex(s, name)] || {}; }
+  function sortItems(list) {
+    var s = state.cfg.settings;
+    return list.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : Core.slotIndex(s, a.slot) - Core.slotIndex(s, b.slot); });
+  }
+
+  // ------------------------------------------------------------ Google sign-in
+
+  var Auth = {
+    enabled: !!CLIENT_ID,
+    session: null, // { token, exp, email, name, given, family }
+    pending: null,
+    ready: false,
+
+    init: function () {
+      if (!this.enabled) return;
+      var saved = load(LS_AUTH, null);
+      if (saved && saved.exp * 1000 > Date.now() + 60000) this.use(saved, true);
+      else forget(LS_AUTH);
+      this.render();
+      var sc = document.createElement('script');
+      sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.defer = true;
+      sc.onload = function () { Auth.setup(); };
+      sc.onerror = function () { Auth.fail('Google sign-in couldn’t load. Check your connection, or that your browser isn’t blocking accounts.google.com.'); };
+      document.head.appendChild(sc);
+    },
+
+    setup: function () {
+      var s = state.cfg ? state.cfg.settings : {};
+      google.accounts.id.initialize({
+        client_id: CLIENT_ID,
+        callback: function (r) { Auth.onCredential(r); },
+        auto_select: true,
+        hd: s.emailDomain || undefined,
+        use_fedcm_for_prompt: true,
+        itp_support: true,
+        cancel_on_tap_outside: false
+      });
+      google.accounts.id.renderButton($('gsiButton'), { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 });
+      this.ready = true;
+      // Returning teachers get signed back in quietly when their sign-in has run out.
+      if (!this.valid() && load(LS_AUTH + '-seen', false)) google.accounts.id.prompt();
+    },
+
+    onCredential: function (resp) {
+      try {
+        var c = JSON.parse(decodeURIComponent(escape(atob(resp.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
+        var domain = state.cfg && state.cfg.settings.emailDomain;
+        if (domain && String(c.email).toLowerCase().slice(-(domain.length + 1)) !== '@' + domain.toLowerCase()) {
+          return this.fail('Please sign in with your @' + domain + ' account.');
+        }
+        this.use({ token: resp.credential, exp: c.exp, email: String(c.email).toLowerCase(), name: c.name || '', given: c.given_name || '', family: c.family_name || '' });
+        save(LS_AUTH, this.session); save(LS_AUTH + '-seen', true);
+        $('signinError').hidden = true;
+        var next = this.pending; this.pending = null;
+        if ($('signinDialog').open) $('signinDialog').close();
+        refreshMineIds();
+        if (next) next();
+      } catch (e) { this.fail('Sign-in didn’t work. Please try again.'); }
+    },
+
+    use: function (sess, quiet) {
+      this.session = sess;
+      Api.setIdToken(sess ? sess.token : null);
+      if (!quiet) this.render();
+    },
+
+    valid: function () { return !!(this.session && this.session.exp * 1000 > Date.now() + 60000); },
+
+    /** Run fn now if signed in (or sign-in is off); otherwise ask the teacher to sign in first. */
+    require: function (fn) {
+      if (!this.enabled || this.valid()) return fn();
+      this.use(null);
+      this.pending = fn;
+      $('signinError').hidden = true;
+      $('signinDialog').showModal();
+      if (this.ready) google.accounts.id.prompt();
+    },
+
+    signOut: function () {
+      if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+      forget(LS_AUTH); forget(LS_AUTH + '-seen');
+      this.use(null); state.mineIds = {};
+      exitEdit(true); render();
+      toast('Signed out');
+    },
+
+    fail: function (msg) {
+      $('signinError').textContent = msg; $('signinError').hidden = false;
+      if (!$('signinDialog').open && this.pending) $('signinDialog').showModal();
+    },
+
+    render: function () {
+      if (!this.enabled) return;
+      var on = this.valid();
+      $('whoChip').hidden = !on;
+      $('signInBtn').hidden = on;
+      if (on) $('whoName').textContent = this.session.name || this.session.email;
+    }
+  };
 
   // ------------------------------------------------------------ Start-up
 
   function start() {
     if (Api.demo) $('demoNotice').hidden = false;
+    bind();
     Api.call('init').then(function (cfg) {
       state.cfg = cfg;
       applySettings();
+      Auth.init();
       var params = new URLSearchParams(location.search);
       var startDate = params.get('date');
       state.weekStart = Core.mondayOf(Core.isDateStr(startDate) ? startDate : torontoNow().date);
@@ -48,12 +156,13 @@
         addGroup(params.get('booking'), params.get('token'));
         history.replaceState(null, '', location.pathname);
         openMine();
+      } else {
+        refreshMineIds();
       }
     }).catch(function (e) {
       $('loading').textContent = e.message;
       $('gridWrap').classList.add('is-loading');
     });
-    bind();
   }
 
   function applySettings() {
@@ -64,6 +173,7 @@
     if (!s.bookingsOpen) { $('closedNotice').textContent = s.closedMessage; $('closedNotice').hidden = false; }
     if (s.showLibrarian) { $('librarianNote').textContent = '“' + s.librarianLabel + '” notes show when the librarian is away from the library.'; $('librarianNote').hidden = false; }
     $('email').placeholder = 'name@' + (s.emailDomain || 'school.ca');
+    if (s.emailDomain) $('signinText').textContent = 'Use your @' + s.emailDomain + ' Google account. Your email is filled in for you, and you can see and change your bookings from any device.';
     $('teacherList').innerHTML = s.teachers.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('');
     $('teacherInput').placeholder = s.allowOtherTeacher ? 'Start typing a name' : 'Choose from the staff list';
     $('gradeToggles').innerHTML = s.grades.map(function (g) {
@@ -111,12 +221,27 @@
 
   function prefetch(wk) { if (!state.cache[wk]) fetchWeek(wk).catch(function () { }); }
 
-  function myGroupIds() { var o = {}; state.groups.forEach(function (g) { o[g.groupId] = true; }); return o; }
-
   function addGroup(groupId, token) {
     if (!state.groups.some(function (g) { return g.groupId === groupId; })) {
       state.groups.push({ groupId: groupId, token: token }); save(LS_GROUPS, state.groups);
     }
+    state.mineIds[groupId] = true;
+  }
+  function tokenFor(gid) { var g = state.groups.filter(function (x) { return x.groupId === gid; })[0]; return g ? g.token : ''; }
+
+  /** Load this teacher's bookings: by private links saved on this device, plus by email when signed in. */
+  function fetchMine() {
+    return Api.call('mine', { groups: state.groups }).then(function (r) {
+      var groups = {};
+      r.bookings.forEach(function (b) { (groups[b.groupId] = groups[b.groupId] || []).push(b); state.mineIds[b.groupId] = true; });
+      state.mineGroups = groups;
+      return groups;
+    });
+  }
+
+  function refreshMineIds() {
+    if (!state.groups.length && !Auth.valid()) return;
+    fetchMine().then(render).catch(function () { });
   }
 
   // ------------------------------------------------------------ Rendering
@@ -137,7 +262,7 @@
     return diff > 0 ? 'In ' + diff + ' weeks' : Math.abs(diff) + ' weeks ago';
   }
 
-  function slotState(date, slot, space, info, ctx) {
+  function slotState(date, slot, space, ctx) {
     var key = date + '|' + slot.name + '|' + space;
     var b = ctx.byKey[key];
     if (b) return { kind: 'booked', booking: b };
@@ -159,9 +284,9 @@
     var bookings = state.cache[wk] || [];
     var byKey = {};
     bookings.forEach(function (b) { byKey[b.date + '|' + b.slot + '|' + b.space] = b; });
-    var mine = myGroupIds();
     var lastDay = Core.addDays(now.date, s.windowDays || 0);
     var multiSpace = s.spaces.length > 1;
+    var editGid = state.editing && state.editing.groupId;
 
     $('weekLabel').textContent = weekLabel(wk);
     $('weekSub').textContent = weekSub(wk);
@@ -208,11 +333,12 @@
         var short = Core.toMinutes(slot.end) - Core.toMinutes(slot.start) <= 15 ? ' is-short' : '';
         var cell = '<div class="g-cell' + short + shown + '" style="--c:' + (i + 2) + ';--r:' + (r + 2) + '" role="gridcell">';
         s.spaces.forEach(function (space) {
-          var st = slotState(d, slot, space, info, ctx);
+          var st = slotState(d, slot, space, ctx);
           var spaceTag = multiSpace ? '<span class="slot-space">' + esc(space) + '</span>' : '';
           if (st.kind === 'booked') {
-            var b = st.booking, isMine = mine[b.groupId];
-            cell += '<div class="slot slot-booked' + (isMine ? ' is-mine' : '') + '" title="' + esc(b.label) + '">' + spaceTag +
+            var b = st.booking, isMine = state.mineIds[b.groupId];
+            var editingThis = editGid && b.groupId === editGid;
+            cell += '<div class="slot slot-booked' + (isMine ? ' is-mine' : '') + (editingThis && state.editing.remove[b.id] ? ' is-removing' : '') + '" title="' + esc(b.label) + '">' + spaceTag +
               '<span class="who">' + esc(b.teachers) + (b.grades ? ' <span class="what">(' + esc(b.grades) + ')</span>' : '') + '</span>' +
               '<span class="what">' + esc(b.description) + '</span></div>';
           } else if (st.kind === 'reserved') {
@@ -221,7 +347,7 @@
             var picked = !!state.selected[st.key];
             cell += '<button type="button" class="slot slot-open' + (picked ? ' is-picked' : '') + '" data-key="' + esc(st.key) + '" aria-pressed="' + picked + '" ' +
               'aria-label="' + esc(slot.name + ', ' + Core.fmtDateLong(d) + (multiSpace ? ', ' + space : '') + (picked ? ', selected' : ', open')) + '">' +
-              spaceTag + '<span class="slot-state">' + (picked ? 'Selected' : 'Open') + '</span></button>';
+              spaceTag + '<span class="slot-state">' + (picked ? 'Selected' : (editGid ? 'Add' : 'Open')) + '</span></button>';
           } else {
             cell += '<div class="slot-off">' + spaceTag + esc(st.text || '') + '</div>';
           }
@@ -242,10 +368,7 @@
   }
 
   function selectedItems() {
-    var s = state.cfg.settings;
-    return Object.keys(state.selected).map(function (k) { return state.selected[k]; }).sort(function (a, b) {
-      return a.date < b.date ? -1 : a.date > b.date ? 1 : Core.slotIndex(s, a.slot) - Core.slotIndex(s, b.slot);
-    });
+    return sortItems(Object.keys(state.selected).map(function (k) { return state.selected[k]; }));
   }
 
   function groupedSummary(items) {
@@ -257,25 +380,56 @@
   }
 
   function renderTray() {
-    var items = selectedItems();
-    $('tray').hidden = !items.length;
+    var items = selectedItems(), ed = state.editing;
+    $('tray').classList.toggle('is-editing', !!ed);
+    $('tray').hidden = !items.length && !ed;
+    if (ed) {
+      $('trayCount').textContent = 'Changing: ' + ed.rows[0].label;
+      $('traySummary').textContent = items.length ? 'Adding ' + groupedSummary(items) : 'Tap open times to add them to this booking.';
+      $('trayClear').textContent = 'Stop';
+      $('trayGo').textContent = 'Review changes';
+      return;
+    }
+    $('trayClear').textContent = 'Clear';
+    $('trayGo').textContent = 'Book';
     if (!items.length) return;
     $('trayCount').textContent = items.length + (items.length === 1 ? ' time selected' : ' times selected');
     $('traySummary').textContent = groupedSummary(items);
   }
 
-  // ------------------------------------------------------------ Booking form
+  // ------------------------------------------------------------ Booking / editing form
 
   function openBooking() {
-    var items = selectedItems();
-    if (!items.length) return;
+    var ed = state.editing, s = state.cfg.settings;
+    if (!ed && !selectedItems().length) return;
     var p = state.profile;
-    state.draftTeachers = (p.teachers || []).slice();
+    var teachers, grades, desc;
+    if (ed) {
+      var b = ed.rows[0];
+      teachers = split(b.teachers); grades = split(b.grades); desc = b.description;
+    } else {
+      teachers = (p.teachers || []).slice(); grades = p.grades || []; desc = $('desc').value;
+      // First booking after signing in: start with the teacher's own name if it's on the staff list.
+      if (!teachers.length && Auth.valid() && Auth.session.family) {
+        var match = s.teachers.filter(function (t) { return t.toLowerCase() === Auth.session.family.toLowerCase(); })[0];
+        if (match) teachers = [match];
+      }
+    }
+    state.draftTeachers = teachers;
     renderTeacherChips();
-    document.querySelectorAll('#gradeToggles input').forEach(function (i) { i.checked = (p.grades || []).indexOf(i.value) >= 0; });
-    var known = state.cfg.settings.grades;
-    $('gradeOther').value = (p.grades || []).filter(function (g) { return known.indexOf(g) < 0; }).join(', ');
+    document.querySelectorAll('#gradeToggles input').forEach(function (i) { i.checked = grades.indexOf(i.value) >= 0; });
+    $('gradeOther').value = grades.filter(function (g) { return s.grades.indexOf(g) < 0; }).join(', ');
+    $('desc').value = desc;
+    var signedIn = Auth.enabled && Auth.valid();
+    $('emailField').hidden = signedIn || !!ed;
+    $('bookingAs').hidden = !(signedIn || ed);
+    $('bookingAs').textContent = signedIn ? 'Booking as ' + Auth.session.email : '';
+    if (ed && !signedIn) $('bookingAs').hidden = true;
     $('email').value = p.email || '';
+    $('remember').parentNode.hidden = !!ed;
+    $('bookTitle').textContent = ed ? 'Change booking' : 'Book the library';
+    $('bookClose').textContent = ed ? 'Close' : 'Cancel';
+    $('addMoreBtn').hidden = !ed;
     $('bookError').hidden = true;
     renderPicked();
     $('bookDialog').showModal();
@@ -283,17 +437,41 @@
   }
 
   function renderPicked() {
-    var items = selectedItems();
-    var multiSpace = state.cfg.settings.spaces.length > 1;
-    $('pickedList').innerHTML = items.map(function (it) {
-      var sl = state.cfg.settings.slots[Core.slotIndex(state.cfg.settings, it.slot)] || {};
-      return '<li><span><b>' + esc(it.slot) + '</b> <small>' + Core.fmtTime(sl.start) + '–' + Core.fmtTime(sl.end) + '</small><br>' +
-        Core.fmtDateLong(it.date) + (multiSpace ? ', ' + esc(it.space) : '') + '</span>' +
+    var ed = state.editing, s = state.cfg.settings;
+    var multiSpace = s.spaces.length > 1;
+    function line(it, extra) {
+      var sl = slotOf(it.slot);
+      return '<span><b>' + esc(it.slot) + '</b> <small>' + Core.fmtTime(sl.start) + '–' + Core.fmtTime(sl.end) + '</small>' + (extra || '') + '<br>' +
+        Core.fmtDateLong(it.date) + (multiSpace ? ', ' + esc(it.space) : '') + '</span>';
+    }
+    var html = '';
+    var today = torontoNow().date;
+    if (ed) {
+      html += sortItems(ed.rows.slice()).map(function (b) {
+        var off = !!ed.remove[b.id];
+        var ctrl = b.date < today ? '' : off
+          ? '<button type="button" class="undo" data-keep="' + esc(b.id) + '">Undo</button>'
+          : '<button type="button" class="x" data-drop="' + esc(b.id) + '" aria-label="Remove ' + esc(b.slot) + '">×</button>';
+        return '<li class="' + (off ? 'is-removed' : '') + '">' + line(b) + ctrl + '</li>';
+      }).join('');
+    }
+    html += selectedItems().map(function (it) {
+      return '<li>' + line(it, ed ? '<span class="tag">New</span>' : '') +
         '<button type="button" class="x" data-unpick="' + esc(it.date + '|' + it.slot + '|' + it.space) + '" aria-label="Remove ' + esc(it.slot) + '">×</button></li>';
     }).join('');
-    var n = items.length;
-    $('bookSubmit').textContent = n === 1 ? 'Book 1 time' : 'Book ' + n + ' times';
-    if (!n) $('bookDialog').close();
+    $('pickedList').innerHTML = html;
+
+    var n = selectedItems().length;
+    if (ed) {
+      var left = ed.rows.filter(function (b) { return !ed.remove[b.id]; }).length + n;
+      $('bookSubmit').textContent = left ? 'Save changes' : 'Cancel this booking';
+      $('bookSubmit').classList.toggle('btn-danger', !left);
+      $('bookSubmit').classList.toggle('btn-primary', !!left);
+    } else {
+      $('bookSubmit').classList.remove('btn-danger'); $('bookSubmit').classList.add('btn-primary');
+      $('bookSubmit').textContent = n === 1 ? 'Book 1 time' : 'Book ' + n + ' times';
+      if (!n && $('bookDialog').open) $('bookDialog').close();
+    }
   }
 
   function renderTeacherChips() {
@@ -318,41 +496,62 @@
 
   function showFormError(msg) { var el = $('bookError'); el.textContent = msg; el.hidden = false; el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
 
-  function submitBooking(e) {
-    e.preventDefault();
+  function readDetails() {
     if ($('teacherInput').value.trim()) addTeacher(true);
     var grades = Array.prototype.map.call(document.querySelectorAll('#gradeToggles input:checked'), function (i) { return i.value; })
-      .concat($('gradeOther').value.split(',').map(function (x) { return x.trim(); }).filter(Boolean));
-    var payload = {
-      email: $('email').value.trim(), teachers: state.draftTeachers.slice(), grades: grades,
-      description: $('desc').value.trim(), items: selectedItems()
-    };
-    if (!payload.teachers.length) return showFormError('Add at least one teacher.');
-    if (!payload.description) return showFormError('Add a short description of what you’re doing.');
-    if (!payload.email) return showFormError('Enter your school email so you get a confirmation.');
+      .concat(split($('gradeOther').value));
+    return { teachers: state.draftTeachers.slice(), grades: grades, description: $('desc').value.trim() };
+  }
+
+  function submitBooking(e) {
+    e.preventDefault();
+    var det = readDetails();
+    if (!det.teachers.length) return showFormError('Add at least one teacher.');
+    if (!det.description) return showFormError('Add a short description of what you’re doing.');
+    var ed = state.editing;
+    var signedIn = Auth.enabled && Auth.valid();
+    var payload = Object.assign({}, det), action;
+    if (ed) {
+      action = 'update';
+      payload.groupId = ed.groupId; payload.token = tokenFor(ed.groupId);
+      payload.removeIds = Object.keys(ed.remove); payload.addItems = selectedItems();
+    } else {
+      action = 'book';
+      payload.items = selectedItems();
+      payload.email = signedIn ? Auth.session.email : $('email').value.trim();
+      if (!payload.email) return showFormError('Enter your school email so you get a confirmation.');
+    }
     $('bookError').hidden = true;
     var btn = $('bookSubmit'), label = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Booking…';
-    Api.call('book', payload).then(function (r) {
-      addGroup(r.groupId, r.token);
-      if ($('remember').checked) {
-        state.profile = { teachers: payload.teachers, email: payload.email, grades: grades }; save(LS_PROFILE, state.profile);
+    btn.disabled = true; btn.textContent = ed ? 'Saving…' : 'Booking…';
+    Api.call(action, payload).then(function (r) {
+      if (!ed) {
+        addGroup(r.groupId, r.token);
+        if ($('remember').checked) {
+          state.profile = { teachers: det.teachers, email: payload.email, grades: det.grades }; save(LS_PROFILE, state.profile);
+        }
       }
       var weeks = {};
-      r.bookings.forEach(function (b) { weeks[Core.mondayOf(b.date)] = true; });
+      r.bookings.concat(ed ? ed.rows : []).forEach(function (b) { weeks[Core.mondayOf(b.date)] = true; });
       Object.keys(weeks).forEach(function (w) { delete state.cache[w]; });
       state.selected = {};
       $('desc').value = '';
       $('bookDialog').close();
-      showDone(r.bookings);
+      if (ed) {
+        exitEdit(true);
+        toast(r.bookings.length ? 'Booking updated' : 'Booking cancelled');
+      } else {
+        showDone(r.bookings);
+      }
       loadWeek(true);
     }).catch(function (err) {
+      if (err.auth) { Auth.use(null); forget(LS_AUTH); btn.disabled = false; btn.textContent = label; return Auth.require(function () { $('bookForm').requestSubmit(); }); }
       showFormError(err.message);
       if (/already booked|reserved|started|too soon/.test(err.message)) {
         delete state.cache[state.weekStart];
         fetchWeek(state.weekStart).then(function () { pruneSelection(); render(); renderPicked(); });
       }
-    }).then(function () { btn.disabled = false; if (btn.textContent === 'Booking…') btn.textContent = label; renderPicked(); });
+    }).then(function () { btn.disabled = false; if (/…$/.test(btn.textContent)) btn.textContent = label; if ($('bookDialog').open) renderPicked(); });
   }
 
   /** Drop selections that are no longer open after a refresh. */
@@ -371,10 +570,31 @@
     $('doneList').innerHTML = bookings.map(function (b) {
       return '<li><span><b>' + esc(b.slot) + '</b><br>' + Core.fmtDateLong(b.date) + (multiSpace ? ', ' + esc(b.space) : '') + '</span></li>';
     }).join('');
-    var s = state.cfg.settings;
-    $('doneNote').textContent = (s.sendConfirmation && !Api.demo ? 'A confirmation is on its way to your email. ' : '') +
-      (s.allowTeacherCancel ? 'You can cancel from “My bookings” on this device' + (s.sendConfirmation && !Api.demo ? ', or with the link in the email.' : '.') : '');
+    var s = state.cfg.settings, mail = s.sendConfirmation && !Api.demo;
+    $('doneNote').textContent = (mail ? 'A confirmation is on its way to your email. ' : '') +
+      (s.allowTeacherCancel ? 'You can change or cancel it from “My bookings”' +
+        (Auth.enabled ? ' on any device.' : ' on this device' + (mail ? ', or with the link in the email.' : '.')) : '');
     $('doneDialog').showModal();
+  }
+
+  // ------------------------------------------------------------ Edit mode
+
+  function startEdit(gid) {
+    var rows = state.mineGroups[gid];
+    if (!rows || !rows.length) return;
+    state.editing = { groupId: gid, rows: rows.slice(), remove: {} };
+    state.selected = {};
+    $('mineDialog').close();
+    var wk = Core.mondayOf(rows[0].date);
+    state.dayIndex = Math.min(4, Math.max(0, Core.weekday(rows[0].date) - 1));
+    if (wk !== state.weekStart) { state.weekStart = wk; loadWeek(); } else render();
+    openBooking();
+  }
+
+  function exitEdit(quiet) {
+    if (!state.editing) return;
+    state.editing = null; state.selected = {};
+    if (!quiet) render(); else renderTray();
   }
 
   // ------------------------------------------------------------ My bookings
@@ -382,31 +602,33 @@
   function openMine() {
     $('mineBody').innerHTML = '<p class="empty">Loading…</p>';
     if (!$('mineDialog').open) $('mineDialog').showModal();
-    if (!state.groups.length) { renderMine([]); return; }
-    Api.call('mine', { groups: state.groups }).then(function (r) { renderMine(r.bookings); })
-      .catch(function (e) { $('mineBody').innerHTML = '<p class="form-error">' + esc(e.message) + '</p>'; });
+    if (!state.groups.length && !Auth.valid()) { renderMine({}); return; }
+    fetchMine().then(renderMine).catch(function (e) {
+      if (e.auth) { Auth.use(null); forget(LS_AUTH); $('mineDialog').close(); return Auth.require(openMine); }
+      $('mineBody').innerHTML = '<p class="form-error">' + esc(e.message) + '</p>';
+    });
   }
 
-  function renderMine(bookings) {
+  function renderMine(groups) {
     var s = state.cfg.settings;
-    if (!bookings.length) {
-      $('mineBody').innerHTML = '<p class="empty">No upcoming bookings made on this device. ' +
-        (s.sendConfirmation && !Api.demo ? 'Booked on another device? Use the link in your confirmation email to manage it.' : '') + '</p>';
+    var order = Object.keys(groups);
+    if (!order.length) {
+      $('mineBody').innerHTML = '<p class="empty">No upcoming bookings' + (Auth.enabled ? ' for ' + esc(Auth.session ? Auth.session.email : 'you') + '.' :
+        ' made on this device. ' + (s.sendConfirmation && !Api.demo ? 'Booked on another device? Use the link in your confirmation email to manage it.' : '')) + '</p>';
       return;
     }
-    var groups = {}, order = [];
-    bookings.forEach(function (b) { if (!groups[b.groupId]) { groups[b.groupId] = []; order.push(b.groupId); } groups[b.groupId].push(b); });
     order.sort(function (a, b) { return groups[a][0].date < groups[b][0].date ? -1 : 1; });
     $('mineBody').innerHTML = order.map(function (gid) {
-      var list = groups[gid].sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : Core.slotIndex(s, a.slot) - Core.slotIndex(s, b.slot); });
+      var list = sortItems(groups[gid]);
       return '<section class="mine-group"><h3>' + esc(list[0].label) + '</h3><ul class="picked-list">' +
         list.map(function (b) {
           return '<li><span><b>' + esc(b.slot) + '</b><br>' + Core.fmtDateLong(b.date) + '</span>' +
             (s.allowTeacherCancel ? '<button type="button" class="btn btn-danger btn-small" data-cancel="' + esc(gid) + '" data-id="' + esc(b.id) + '">Cancel</button>' : '') + '</li>';
         }).join('') + '</ul>' +
-        (s.allowTeacherCancel && list.length > 1 ? '<button type="button" class="btn btn-danger btn-small" data-cancel="' + esc(gid) + '">Cancel all ' + list.length + '</button>' : '') +
+        (s.allowTeacherCancel ? '<div class="mine-actions"><button type="button" class="btn btn-quiet btn-small" data-edit="' + esc(gid) + '">Change booking</button>' +
+          (list.length > 1 ? '<button type="button" class="btn btn-danger btn-small" data-cancel="' + esc(gid) + '">Cancel all ' + list.length + '</button>' : '') + '</div>' : '') +
         '</section>';
-    }).join('') + (s.allowTeacherCancel ? '' : '<p class="muted">To cancel, please contact the librarian.</p>');
+    }).join('') + (s.allowTeacherCancel ? '' : '<p class="muted">To change or cancel, please contact the librarian.</p>');
   }
 
   function cancelClick(btn) {
@@ -415,10 +637,9 @@
       setTimeout(function () { if (btn.isConnected) { btn.classList.remove('is-confirm'); btn.textContent = btn.dataset.label; } }, 4000);
       return;
     }
-    var gid = btn.dataset.cancel, g = state.groups.filter(function (x) { return x.groupId === gid; })[0];
-    if (!g) return;
+    var gid = btn.dataset.cancel;
     btn.disabled = true; btn.textContent = 'Cancelling…';
-    Api.call('cancel', { groupId: gid, token: g.token, ids: btn.dataset.id ? [btn.dataset.id] : [] }).then(function () {
+    Api.call('cancel', { groupId: gid, token: tokenFor(gid), ids: btn.dataset.id ? [btn.dataset.id] : [] }).then(function () {
       toast('Booking cancelled');
       state.cache = {};
       loadWeek(true);
@@ -463,7 +684,7 @@
       else state.selected[key] = { date: p[0], slot: p[1], space: p[2] };
       btn.classList.toggle('is-picked', !!state.selected[key]);
       btn.setAttribute('aria-pressed', !!state.selected[key]);
-      btn.querySelector('.slot-state').textContent = state.selected[key] ? 'Selected' : 'Open';
+      btn.querySelector('.slot-state').textContent = state.selected[key] ? 'Selected' : (state.editing ? 'Add' : 'Open');
       renderTray();
     });
 
@@ -486,9 +707,13 @@
       if (e.key === 'ArrowRight' && e.altKey) goWeek(1);
     });
 
-    $('trayClear').onclick = function () { state.selected = {}; render(); };
-    $('trayGo').onclick = openBooking;
+    $('trayClear').onclick = function () { if (state.editing) exitEdit(); else { state.selected = {}; render(); } };
+    $('trayGo').onclick = function () { if (state.editing) openBooking(); else Auth.require(openBooking); };
     $('bookForm').addEventListener('submit', submitBooking);
+    $('addMoreBtn').onclick = function () {
+      $('bookDialog').close();
+      toast('Tap open times to add them, then tap Review changes.');
+    };
     $('teacherAdd').onclick = function () { addTeacher(true); $('teacherInput').focus(); };
     $('teacherInput').addEventListener('input', function () { addTeacher(false); });
     $('teacherInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addTeacher(true); } });
@@ -497,11 +722,21 @@
       state.draftTeachers.splice(+c.dataset.chip, 1); renderTeacherChips();
     });
     $('pickedList').addEventListener('click', function (e) {
-      var x = e.target.closest('[data-unpick]'); if (!x) return;
-      delete state.selected[x.dataset.unpick]; renderPicked(); render();
+      var x = e.target.closest('[data-unpick]');
+      if (x) { delete state.selected[x.dataset.unpick]; renderPicked(); render(); return; }
+      var d = e.target.closest('[data-drop]');
+      if (d && state.editing) { state.editing.remove[d.dataset.drop] = true; renderPicked(); return; }
+      var k = e.target.closest('[data-keep]');
+      if (k && state.editing) { delete state.editing.remove[k.dataset.keep]; renderPicked(); }
     });
-    $('myBookingsBtn').onclick = openMine;
-    $('mineBody').addEventListener('click', function (e) { var b = e.target.closest('[data-cancel]'); if (b) cancelClick(b); });
+    $('myBookingsBtn').onclick = function () { Auth.require(openMine); };
+    $('signInBtn').onclick = function () { Auth.require(function () { toast('Signed in as ' + Auth.session.email); }); };
+    $('signOutBtn').onclick = function () { Auth.signOut(); };
+    $('mineBody').addEventListener('click', function (e) {
+      var c = e.target.closest('[data-cancel]'); if (c) return cancelClick(c);
+      var ed = e.target.closest('[data-edit]'); if (ed) startEdit(ed.dataset.edit);
+    });
+    $('signinDialog').addEventListener('close', function () { Auth.pending = null; });
 
     document.querySelectorAll('dialog').forEach(function (d) {
       d.addEventListener('click', function (e) {
