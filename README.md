@@ -102,7 +102,7 @@ DNS can take anywhere from a few minutes to a few hours. When GitHub shows the d
 
 ### 7. Optional: turn on "Sign in with Google"
 
-Without this, teachers type their email and manage bookings from the device they booked on (or the link in their confirmation email). With it, they sign in once with their @ddsb.ca Google account: no typing their email, and **My bookings** shows everything they've booked on any device.
+Without this, anyone with the link can see the calendar, and teachers type their email and manage bookings from the device they booked on (or the link in their confirmation email). With it, **the whole site is locked until a teacher signs in with an @ddsb.ca Google account**. The Apps Script also refuses to send any calendar data without a verified sign-in. Teachers don't type their email, and **My bookings** shows everything they've booked on any device. The domain is set by `googleHostedDomain` in `config.js` and *Required email domain* in admin Settings; keep them the same.
 
 **a. Create a Google sign-in client** (about 10 minutes)
 
@@ -171,7 +171,7 @@ Without this, teachers type their email and manage bookings from the device they
   if (sheetName.indexOf('App ') === 0) continue;   // skip the booking site's data tabs
   ```
 
-- **Teacher identity:** with Google sign-in on, the email on each booking comes from the teacher's verified Google account, checked by the Apps Script with Google on every booking. Teachers can only change or cancel bookings made with their own account, or ones they hold the private link for. With sign-in off, teachers type their email (only `@ddsb.ca` is accepted, which you can change in Settings), and each booking gets a private link that's saved on their device and emailed to them.
+- **Teacher identity:** with Google sign-in on, nothing on the site or in the Apps Script works without a verified @ddsb.ca sign-in. The email on each booking comes from the teacher's Google account, and teachers can only change or cancel bookings made with their own account. Sign-ins last about an hour and renew quietly in the background. The admin page still uses its passcode. With sign-in off, teachers type their email (only `@ddsb.ca` is accepted, which you can change in Settings), and each booking gets a private link that's saved on their device and emailed to them.
 - **Changing a booking:** teachers can edit the details, remove times that haven't happened yet, and add new times, all in one save. New times follow the same rules as a new booking. Turning off *Teachers can change and cancel their own bookings* in Settings switches off both.
 - **Double bookings:** the script locks while saving. If two teachers grab the same time at once, the second one is told it's taken.
 - **Email limits:** Apps Script on a school account can send about 1,500 emails a day, and far fewer on a personal Gmail account (about 100 a day). Normal library use stays well under either limit.
