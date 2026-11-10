@@ -18,7 +18,7 @@ var SPREADSHEET_ID = '1g00WwPXI8JPcSI7WjnOhdygyihbAscBuzXVl1b9JaWo';
 
 // Sign in with Google. Paste the same OAuth Client ID that's in the website's
 // assets/config.js. Leave it '' to let teachers type their email instead.
-var GOOGLE_CLIENT_ID = '';
+var GOOGLE_CLIENT_ID = '241712157669-1huukafbcpsifc4v35op6o80qjb10r0r.apps.googleusercontent.com';
 
 // Copy bookings into the old Form's response tab so existing formulas see them.
 // Set to '' to stop doing this (e.g. once the weekly tabs are retired).
@@ -29,8 +29,11 @@ var SHEETS = {
   statics: 'App Static Bookings',
   calendar: 'App Calendar',
   librarian: 'App Librarian Schedule',
-  settings: 'App Settings'
+  settings: 'App Settings',
+  staff: 'App Staff'
 };
+var STAFF_COLS = ['email', 'name', 'status', 'requested', 'decided', 'note'];
+var STAFF_HEADERS = ['Email', 'Name', 'Status (approved / pending / denied)', 'Requested', 'Decided', 'Note'];
 
 var BOOKING_COLS = ['id', 'groupId', 'created', 'email', 'teachers', 'grades', 'space', 'date', 'slot',
   'description', 'status', 'token', 'source', 'cancelledAt'];
@@ -50,8 +53,9 @@ function doPost(e) {
   return respond(body.action, body);
 }
 
-// Actions where a teacher acts on their own bookings.
-var TEACHER_ACTIONS = { book: true, mine: true, cancel: true, update: true };
+// With Google sign-in on, every teacher-side request needs a signed-in @domain account.
+// The admin page can still read the calendar with its passcode.
+var READ_ACTIONS = { init: true, bookings: true };
 
 function respond(action, payload) {
   var out;
@@ -60,20 +64,31 @@ function respond(action, payload) {
     var idToken = payload.idToken;
     delete payload.idToken;
     delete payload.authEmail; // only ever set here, from a verified Google sign-in
-    if (String(action).indexOf('admin') === 0) throttleAdmin_(payload);
-    if (GOOGLE_CLIENT_ID && TEACHER_ACTIONS[action]) {
-      if (idToken) {
-        payload.authEmail = verifyIdToken_(idToken).email;
-        payload.email = payload.authEmail;
-      } else if (action === 'book') {
-        throw authError_('Sign in with your school Google account to book.');
+    var isAdmin = String(action).indexOf('admin') === 0;
+    if (isAdmin) throttleAdmin_(payload);
+    if (GOOGLE_CLIENT_ID && !isAdmin) {
+      var adminView = false;
+      if (READ_ACTIONS[action] && payload.passcode) {
+        throttleAdmin_(payload);
+        adminView = Store.checkPasscode(String(payload.passcode));
       }
-      // Without sign-in, change/cancel still work through the private link in the confirmation email.
+      if (!adminView) {
+        if (!idToken) throw authError_('Sign in with your school Google account to continue.');
+        var email = verifyIdToken_(idToken).email;
+        var domain = String(Store.getSettings().emailDomain || '').toLowerCase();
+        if (domain && email.slice(-(domain.length + 1)) !== '@' + domain) {
+          throw authError_('Please sign in with your @' + domain + ' Google account.');
+        }
+        payload.authEmail = email;
+        payload.email = email;
+      }
     }
+
     out = { ok: true, data: Core.handle(action, payload, Store, now_()) };
   } catch (e) {
     out = { ok: false, error: e.userFacing ? e.message : 'Something went wrong on the server: ' + e.message };
     if (e.authRequired) out.auth = true;
+    if (e.access) out.access = e.access;
     if (!e.userFacing) console.error(e);
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
@@ -229,6 +244,34 @@ var Store = {
         .setValues([BOOKING_COLS.map(function (k) { return b[k] == null ? '' : b[k]; })]);
     });
     mirrorToForm_(rows);
+  },
+
+  // Approved staff list. The tab is created the first time it's needed.
+  staffSheet: function () {
+    var ss = this.ss(), sh = ss.getSheetByName(SHEETS.staff);
+    if (!sh) {
+      sh = ss.insertSheet(SHEETS.staff);
+      sh.getRange(1, 1, 1, STAFF_HEADERS.length).setValues([STAFF_HEADERS]).setFontWeight('bold').setBackground('#e8eaf2');
+      sh.setFrozenRows(1);
+    }
+    return sh;
+  },
+  getStaff: function () {
+    if (this._staff) return this._staff;
+    var rows = this.staffSheet().getDataRange().getValues().slice(1);
+    this._staff = rows.filter(function (r) { return r[0]; }).map(function (r) {
+      var o = {};
+      STAFF_COLS.forEach(function (k, j) { o[k] = r[j] instanceof Date ? stamp_(r[j], k) : String(r[j]).trim(); });
+      o.email = o.email.toLowerCase();
+      o.status = (o.status || 'pending').toLowerCase();
+      return o;
+    });
+    return this._staff;
+  },
+  saveStaff: function (list) {
+    this._staff = list;
+    var rows = list.map(function (o) { return STAFF_COLS.map(function (k) { return o[k] == null ? '' : o[k]; }); });
+    writeTable_(this.staffSheet(), rows, STAFF_COLS.length);
   },
 
   checkPasscode: function (p) {
