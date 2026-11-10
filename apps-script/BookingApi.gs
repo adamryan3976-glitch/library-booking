@@ -16,6 +16,10 @@
 // The "Winchester Library Booking" spreadsheet.
 var SPREADSHEET_ID = '1g00WwPXI8JPcSI7WjnOhdygyihbAscBuzXVl1b9JaWo';
 
+// Sign in with Google. Paste the same OAuth Client ID that's in the website's
+// assets/config.js. Leave it '' to let teachers type their email instead.
+var GOOGLE_CLIENT_ID = '';
+
 // Copy bookings into the old Form's response tab so existing formulas see them.
 // Set to '' to stop doing this (e.g. once the weekly tabs are retired).
 var FORM_MIRROR_SHEET = 'Form Responses 2';
@@ -46,13 +50,30 @@ function doPost(e) {
   return respond(body.action, body);
 }
 
+// Actions where a teacher acts on their own bookings.
+var TEACHER_ACTIONS = { book: true, mine: true, cancel: true, update: true };
+
 function respond(action, payload) {
   var out;
   try {
+    payload = payload || {};
+    var idToken = payload.idToken;
+    delete payload.idToken;
+    delete payload.authEmail; // only ever set here, from a verified Google sign-in
     if (String(action).indexOf('admin') === 0) throttleAdmin_(payload);
+    if (GOOGLE_CLIENT_ID && TEACHER_ACTIONS[action]) {
+      if (idToken) {
+        payload.authEmail = verifyIdToken_(idToken).email;
+        payload.email = payload.authEmail;
+      } else if (action === 'book') {
+        throw authError_('Sign in with your school Google account to book.');
+      }
+      // Without sign-in, change/cancel still work through the private link in the confirmation email.
+    }
     out = { ok: true, data: Core.handle(action, payload, Store, now_()) };
   } catch (e) {
     out = { ok: false, error: e.userFacing ? e.message : 'Something went wrong on the server: ' + e.message };
+    if (e.authRequired) out.auth = true;
     if (!e.userFacing) console.error(e);
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
@@ -71,6 +92,32 @@ function now_() {
     minutes: +Utilities.formatDate(d, tz, 'H') * 60 + +Utilities.formatDate(d, tz, 'm'),
     stamp: Utilities.formatDate(d, tz, 'yyyy-MM-dd HH:mm:ss')
   };
+}
+
+function authError_(msg) { var e = new Error(msg); e.userFacing = true; e.authRequired = true; return e; }
+
+/**
+ * Checks a Google sign-in ID token with Google and returns { email, name }.
+ * Results are cached until the token expires (about an hour), so this only
+ * calls Google once per sign-in.
+ */
+function verifyIdToken_(token) {
+  var cache = CacheService.getScriptCache();
+  var key = 'id_' + Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token)).slice(0, 40);
+  var hit = cache.get(key);
+  if (hit) return JSON.parse(hit);
+  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token),
+    { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw authError_('Your sign-in has expired. Please sign in again.');
+  var info = JSON.parse(res.getContentText());
+  var secsLeft = Math.floor(+info.exp - Date.now() / 1000);
+  if (info.aud !== GOOGLE_CLIENT_ID) throw authError_('This sign-in is for a different app. Please sign in again.');
+  if (String(info.email_verified) !== 'true' || !info.email) throw authError_('Your Google account email isn’t verified.');
+  if (!(secsLeft > 0)) throw authError_('Your sign-in has expired. Please sign in again.');
+  var who = { email: String(info.email).toLowerCase(), name: info.name || '' };
+  if (secsLeft > 30) cache.put(key, JSON.stringify(who), Math.min(secsLeft, 21600));
+  return who;
 }
 
 /** Slow down passcode guessing: max 20 admin calls with a wrong passcode per 10 minutes. */
@@ -350,6 +397,16 @@ function mirrorToForm_(changed) {
 
 function mirrorKey_(created, email, date) {
   return String(created).slice(0, 19) + '|' + String(email || '').trim().toLowerCase() + '|' + date;
+}
+
+/**
+ * Run once after turning on Google sign-in: grants permission to check sign-ins
+ * with Google and confirms GOOGLE_CLIENT_ID is filled in.
+ */
+function testSignInSetup() {
+  if (!GOOGLE_CLIENT_ID) throw new Error('Paste your OAuth Client ID into GOOGLE_CLIENT_ID at the top of BookingApi.gs first.');
+  var res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=test', { muteHttpExceptions: true });
+  Logger.log('Google sign-in check is reachable (status %s). Sign-in is ON for client %s.', res.getResponseCode(), GOOGLE_CLIENT_ID);
 }
 
 /** Run this once from the editor to grant email permission and send yourself a test. */
