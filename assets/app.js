@@ -382,7 +382,7 @@
     });
 
     s.slots.forEach(function (slot, r) {
-      var short = Core.toMinutes(slot.end) - Core.toMinutes(slot.start) <= 15 ? ' is-short' : '';
+      var short = (Core.toMinutes(slot.end) - Core.toMinutes(slot.start) <= 15 ? ' is-short' : '') + (isBreak(slot) ? ' is-break' : '');
       html.push('<div class="g-time' + short + '" style="--r:' + (r + 2) + '" role="rowheader"><b>' + esc(slot.name) + '</b><span>' +
         Core.fmtTime(slot.start) + '–' + Core.fmtTime(slot.end) + '</span></div>');
     });
@@ -396,7 +396,7 @@
       }
       var ctx = { byKey: byKey, statics: Core.staticsFor(d, info.cycleDay, cfg.statics), now: now, lastDay: lastDay };
       s.slots.forEach(function (slot, r) {
-        var short = Core.toMinutes(slot.end) - Core.toMinutes(slot.start) <= 15 ? ' is-short' : '';
+        var short = (Core.toMinutes(slot.end) - Core.toMinutes(slot.start) <= 15 ? ' is-short' : '') + (isBreak(slot) ? ' is-break' : '');
         var cell = '<div class="g-cell' + short + shown + '" style="--c:' + (i + 2) + ';--r:' + (r + 2) + '" role="gridcell">';
         s.spaces.forEach(function (space) {
           var st = slotState(d, slot, space, ctx);
@@ -432,6 +432,9 @@
     $('dayTabs').innerHTML = tabs.join('');
     renderTray();
   }
+
+  /** Before School, recesses, Lunch, After School: any time that isn't a "Period". */
+  function isBreak(slot) { return !/^period\b/i.test(slot.name); }
 
   function selectedItems() {
     return sortItems(Object.keys(state.selected).map(function (k) { return state.selected[k]; }));
