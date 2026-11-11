@@ -348,41 +348,132 @@ function setup() {
     props.getProperty('ADMIN_PASSCODE') === 'changeme' ? 'changeme' : '(already set)');
 }
 
+// ---------------------------------------------------------------- Old Google Form → app
+
 /**
- * Optional: copy upcoming bookings from the old Google Form ("Form Responses 2")
- * into the new system. Only bookings dated today or later are copied. Run once.
- * Anything that conflicts or can't be read is listed in the log instead.
+ * Copies Google Form bookings into the app so both can be used during the
+ * changeover. Only bookings dated today or later are copied, and each Form row
+ * is copied once (matched by timestamp + email + date). A time that's already
+ * booked in the app is left out and reported to the librarian by email.
+ *
+ * Run importFormResponses() by hand any time, or run installFormSync() once to
+ * do it automatically whenever someone submits the Form.
  */
 function importFormResponses() {
+  var r = withScriptLock_(function () { return importFormRows_(false); });
+  Logger.log('Imported %s Form booking(s) (%s time slots).', r.groups, r.slots);
+  if (r.conflicts.length) Logger.log('Not imported (time already booked in the app):\n' + r.conflicts.join('\n'));
+  if (r.problems.length) Logger.log('Could not read:\n' + r.problems.join('\n'));
+}
+
+/** Runs on every Form submission (and hourly as a back-up) once installFormSync() has been run. */
+function syncFormResponses() {
+  var r = withScriptLock_(function () { return importFormRows_(true); });
+  if (r.conflicts.length || r.problems.length) {
+    var s = Store.getSettings();
+    var to = s.notifyEmail || Session.getEffectiveUser().getEmail();
+    if (to) {
+      MailApp.sendEmail({ to: to, name: s.schoolName + ' Library',
+        subject: 'Library Form booking clash' + (r.conflicts.length > 1 ? 'es' : ''),
+        body: 'These Google Form bookings were NOT added to the booking app because the time was already booked there. ' +
+          'Please sort them out with the teachers.\n\n' + r.conflicts.concat(r.problems).join('\n') +
+          '\n\nAdmin page: ' + (s.siteUrl || '') + '/admin.html' });
+    }
+  }
+}
+
+/** Run once to start copying Form submissions into the app automatically. */
+function installFormSync() {
+  removeFormSync();
+  ScriptApp.newTrigger('syncFormResponses').forSpreadsheet(SPREADSHEET_ID).onFormSubmit().create();
+  ScriptApp.newTrigger('syncFormResponses').timeBased().everyHours(1).create();
+  importFormResponses(); // catch anything submitted before now
+  Logger.log('Form sync is on. New Form bookings will appear in the app within a few seconds.');
+}
+
+/** Run once when you retire the Google Form, to stop the automatic copying. */
+function removeFormSync() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'syncFormResponses') ScriptApp.deleteTrigger(t);
+  });
+}
+
+function withScriptLock_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+/**
+ * onlyNew: only look at Form rows submitted since the last sync (keeps clash
+ * emails from repeating). The full scan used by importFormResponses() still
+ * skips anything already copied.
+ */
+function importFormRows_(onlyNew) {
+  var out = { groups: 0, slots: 0, conflicts: [], problems: [] };
   var sh = Store.ss().getSheetByName('Form Responses 2');
   if (!sh) throw new Error('No "Form Responses 2" tab found.');
-  var now = now_();
-  var settings = Store.getSettings();
-  var existing = Store.getBookings().filter(function (b) { return b.status === 'active'; });
-  var taken = {};
-  existing.forEach(function (b) { taken[b.date + '|' + b.slot + '|' + b.space] = true; });
-  var rows = [], skipped = [];
-  sh.getDataRange().getValues().slice(1).forEach(function (r, i) {
-    var date = dateStr_(r[5]);
-    if (!Core.isDateStr(date) || date < now.date) return;
-    var space = settings.spaces.indexOf(String(r[4])) >= 0 ? String(r[4]) : settings.spaces[0];
-    var groupId = Store.newId(), token = Store.newId() + Store.newId();
-    String(r[6]).split(',').map(function (x) { return x.trim(); }).filter(String).forEach(function (slot) {
-      var key = date + '|' + slot + '|' + space;
-      if (taken[key]) { skipped.push('Row ' + (i + 2) + ': ' + date + ' ' + slot + ' already booked'); return; }
-      if (Core.slotIndex(settings, slot) === 999) { skipped.push('Row ' + (i + 2) + ': unknown slot "' + slot + '"'); return; }
-      taken[key] = true;
-      rows.push({ id: Store.newId(), groupId: groupId, created: stamp_(r[0] instanceof Date ? r[0] : new Date(), 'created'),
-        email: String(r[1]).toLowerCase(), teachers: String(r[2]), grades: String(r[3]), space: space, date: date,
-        slot: slot, description: String(r[7]).trim(), status: 'active', token: token, source: 'import', cancelledAt: '' });
-    });
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return out;
+
+  // Find the Form's columns by their headings, falling back to the usual order.
+  var head = values[0].map(function (h) { return String(h).trim().toLowerCase(); });
+  function col(prefix, fallback) {
+    for (var i = 0; i < head.length; i++) if (head[i].indexOf(prefix) === 0) return i;
+    return fallback;
+  }
+  var C = { ts: col('timestamp', 0), email: col('email', 1), name: col('name', 2), grades: col('grade', 3),
+    space: col('i would like', 4), date: col('booking date', 5), periods: col('period', 6), desc: col('activity', 7) };
+
+  var props = PropertiesService.getScriptProperties();
+  var since = onlyNew ? +(props.getProperty('FORM_SYNC_LAST') || 0) : 0;
+  var newest = +(props.getProperty('FORM_SYNC_LAST') || 0);
+  var now = now_(), settings = Store.getSettings();
+  var all = Store.getBookings();
+  var known = {}, taken = {};
+  all.forEach(function (b) {
+    known[mirrorKey_(b.created, b.email, b.date)] = true;
+    if (b.status === 'active') taken[b.date + '|' + b.slot + '|' + b.space] = b;
   });
-  // These rows already exist in Form Responses 2, so don't copy them there again.
-  // (Later edits and cancellations made in the new admin page will still update them.)
+
+  var rows = [];
+  values.slice(1).forEach(function (r, i) {
+    var ts = r[C.ts];
+    if (!(ts instanceof Date)) return;
+    newest = Math.max(newest, ts.getTime());
+    if (onlyNew && ts.getTime() <= since) return;
+    var date = dateStr_(r[C.date]);
+    if (!Core.isDateStr(date) || date < now.date) return;
+    var created = stamp_(ts, 'created'), email = String(r[C.email] || '').trim().toLowerCase();
+    var key = mirrorKey_(created, email, date);
+    if (known[key]) return; // already in the app (copied earlier, or made in the app itself)
+    known[key] = true;
+    var who = String(r[C.name] || '').trim(), label = who + ' (' + Core.fmtDateLong(date) + ')';
+    var spaceVal = String(r[C.space] || '').trim();
+    var space = settings.spaces.indexOf(spaceVal) >= 0 ? spaceVal : settings.spaces[0];
+    var groupId = Store.newId(), token = Store.newId() + Store.newId(), added = 0;
+    String(r[C.periods] || '').split(',').map(function (x) { return x.trim(); }).filter(String).forEach(function (slot) {
+      if (Core.slotIndex(settings, slot) === 999) { out.problems.push('Row ' + (i + 2) + ', ' + label + ': unknown time "' + slot + '"'); return; }
+      var k = date + '|' + slot + '|' + space;
+      if (taken[k]) {
+        out.conflicts.push('• ' + who + ' asked for ' + slot + ' on ' + Core.fmtDateLong(date) + ' (Form row ' + (i + 2) +
+          '), but ' + taken[k].teachers + ' already has it in the app.');
+        return;
+      }
+      var b = { id: Store.newId(), groupId: groupId, created: created, email: email, teachers: who,
+        grades: String(r[C.grades] || '').trim(), space: space, date: date, slot: slot,
+        description: String(r[C.desc] || '').trim(), status: 'active', token: token, source: 'form', cancelledAt: '' };
+      taken[k] = b; rows.push(b); added++;
+    });
+    if (added) { out.groups++; out.slots += added; }
+  });
+
+  // These rows already exist in Form Responses 2, so don't copy them back there.
+  // (Edits and cancellations made later in the app still update them.)
   Store._noMirror = true;
   try { if (rows.length) Store.appendBookings(rows); } finally { Store._noMirror = false; }
-  Logger.log('Imported %s slot bookings.', rows.length);
-  if (skipped.length) Logger.log('Skipped:\n' + skipped.join('\n'));
+  props.setProperty('FORM_SYNC_LAST', String(newest));
+  return out;
 }
 
 // ---------------------------------------------------------------- Form Responses 2 mirror
