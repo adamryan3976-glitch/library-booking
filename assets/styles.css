@@ -392,3 +392,7 @@ body.is-gated #announcement, body.is-gated #closedNotice { display: none !import
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Shown only when the site is embedded in another page (see index.html) */
+.frame-note { margin: 6px 0 0 !important; font-size: 14px; color: var(--ink-2); text-align: center; }
+.frame-note a { color: var(--ink); font-weight: 700; }
