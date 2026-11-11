@@ -50,9 +50,9 @@ The Sheet's existing Apps Script (Code.gs, App.html, Index.html, SchoolCalendarE
    - This creates five new tabs: *App Bookings*, *App Settings*, *App Calendar*, *App Static Bookings* and *App Librarian Schedule*.
    - The calendar comes pre-filled with the 2026–27 DDSB dates. The librarian schedule comes pre-filled from the current timetable.
 6. **Optional:** to bring over upcoming bookings from the old Google Form, choose **`importFormResponses`** and click **Run**.
-   - Only bookings dated today or later are copied.
-   - Run it once, just before you switch teachers over.
-   - These bookings are already in Form Responses 2, so they aren't copied there a second time. Cancelling or editing one in the new admin page still updates its original row.
+   - Only bookings dated today or later are copied, and each Form booking is only ever copied once, so it's safe to run again.
+   - These bookings are already in Form Responses 2, so they aren't copied there a second time. Cancelling or editing one in the app still updates its original row.
+   - To keep copying new Form bookings automatically while both systems are in use, see *Running the Form and the app side by side* below.
 7. **Optional:** choose **`testEmail`** and click **Run**. This lets the script send email and sends you a test message.
 
 ### 2. Publish it as a web app
@@ -138,10 +138,22 @@ With Google sign-in on, you can limit the site to a list of approved staff. This
 
 The list is saved in an **App Staff** tab in the Google Sheet, which is created automatically the first time it's needed.
 
-### 9. Switch teachers over
+### 9. Running the Form and the app side by side
+
+You can keep the Google Form open while staff move over:
+
+- **App → Sheet:** bookings made in the app are always copied into Form Responses 2, so your weekly tabs, the Google Site, the Today tab, Library Today and Home Assistant show everything.
+- **Form → app:** in the booking Apps Script project, choose **`installFormSync`** and click **Run**, approving the trigger permission it asks for. From then on:
+  - every Form submission is copied into the app within seconds, with an hourly back-up check
+  - if a Form booking asks for a time that's already booked in the app, that time isn't copied, and you get a **"Library Form booking clash"** email naming both teachers. It goes to the *Send me a copy* address in Settings, or the script owner if that's blank.
+  - the Form row itself is left as it is, so your weekly tab shows the double-booking until you sort it out
+
+When everyone has moved over, run **`removeFormSync`** to stop the copying, then close the Form.
+
+### 10. Switch teachers over
 
 - On the Google Site, replace the embedded sheet and form with a link to (or an embed of) `https://library.winchesterps.ca`.
-- In the Google Form, turn off **Accepting responses**. Set the closed message to *"Library booking has moved to library.winchesterps.ca"*.
+- In the Google Form, turn off **Accepting responses**. Set the closed message to *"Library booking has moved to library.winchesterps.ca"*. If you turned on the Form sync, run **`removeFormSync`** in the booking Apps Script project.
 
 ---
 
