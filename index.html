@@ -54,6 +54,7 @@
       <div class="gate-step" id="gateSignin">
         <p id="gateText">Sign in with your school Google account to see the library calendar and book times.</p>
         <div class="gsi-slot" id="gateButton"></div>
+        <p class="frame-note" data-framed hidden>Trouble signing in here? <a href="./" target="_blank" rel="noopener">Open the booking site in a new tab ↗</a></p>
       </div>
 
       <form class="gate-step" id="gateRequest" hidden novalidate>
@@ -188,6 +189,7 @@
       <p class="muted" id="signinText">Use your school Google account. Your name and email are filled in for you, and you can see and change your bookings from any device.</p>
       <div class="gsi-slot" id="gsiButton"></div>
       <p class="form-error" id="signinError" role="alert" hidden></p>
+      <p class="frame-note" data-framed hidden>Trouble signing in here? <a href="./" target="_blank" rel="noopener">Open the booking site in a new tab ↗</a></p>
     </div>
   </dialog>
 
@@ -219,6 +221,17 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script>
+    /* When the site is embedded (e.g. in the school Google Site), show an
+       "Open in a new tab" link next to Sign in with Google. Some browsers,
+       especially Safari on iPhone/iPad, block Google sign-in inside a frame. */
+    (function () {
+      var framed; try { framed = window.self !== window.top; } catch (e) { framed = true; }
+      if (!framed) return;
+      document.documentElement.classList.add('is-framed');
+      document.querySelectorAll('[data-framed]').forEach(function (el) { el.hidden = false; });
+    })();
+  </script>
   <script src="assets/config.js"></script>
   <script src="assets/core.js"></script>
   <script src="assets/api.js"></script>
