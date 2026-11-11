@@ -372,6 +372,13 @@ textarea { resize: vertical; }
 #gateRequest .btn { margin-top: 4px; }
 #gatePending .btn { justify-self: center; }
 .gate-foot { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.gate-guide {
+  display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 10px 14px; text-align: left;
+  border: 1.5px solid var(--line); border-radius: var(--radius-m); color: var(--ink); text-decoration: none; font-size: 15px;
+}
+.gate-guide:hover { border-color: var(--ink); }
+.gate-guide svg { width: 24px; height: 24px; flex: none; fill: none; stroke: var(--stamp); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.footlinks { display: inline-flex; gap: 16px; }
 .linklike { background: none; border: 0; padding: 0; color: var(--ink); text-decoration: underline; cursor: pointer; font-size: 14px; }
 .gate-card h1 { margin: 14px 0 6px; font-size: 26px; letter-spacing: -.015em; }
 .gate-card p { margin: 0; color: var(--ink-2); }
@@ -392,7 +399,3 @@ body.is-gated #announcement, body.is-gated #closedNotice { display: none !import
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
-
-/* Shown only when the site is embedded in another page (see index.html) */
-.frame-note { margin: 6px 0 0 !important; font-size: 14px; color: var(--ink-2); text-align: center; }
-.frame-note a { color: var(--ink); font-weight: 700; }
