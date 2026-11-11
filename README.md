@@ -195,6 +195,10 @@ To add it to a phone's home screen:
 
 It then opens full-screen like an app. To change the logo, replace those image files with new ones of the same names and sizes.
 
+## Staff how-to guide
+
+`how-to.pdf` is the one-page staff guide. It's linked from the sign-in screen ("New here?") and the page footer. To update it, edit the design, choose **Export → PDF**, and replace `how-to.pdf` in the repo with the new file, keeping the same name.
+
 ## Changing the code later
 
 - **Website files** (`index.html`, `assets/…`): edit them on GitHub and the site updates in about a minute.
