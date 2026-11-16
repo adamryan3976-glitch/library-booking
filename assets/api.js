@@ -26,7 +26,7 @@ var Api = (function () {
     return req.then(function (res) { return res.json(); }, function () {
       throw new Error('Can’t reach the booking server. Check your connection and try again.');
     }).then(function (j) {
-      if (!j.ok) { var e = new Error(j.error || 'The server could not complete that request.'); e.auth = !!j.auth; throw e; }
+      if (!j.ok) { var e = new Error(j.error || 'The server could not complete that request.'); e.auth = !!j.auth; e.access = j.access || ''; throw e; }
       return j.data;
     });
   }
@@ -61,7 +61,7 @@ var Api = (function () {
         calendar: JSON.parse(JSON.stringify(Core.DEFAULT_CALENDAR)),
         statics: JSON.parse(JSON.stringify(Core.DEFAULT_STATICS)),
         librarian: JSON.parse(JSON.stringify(Core.DEFAULT_LIBRARIAN)),
-        bookings: [], passcode: 'changeme'
+        bookings: [], passcode: 'changeme', staff: []
       };
       data.settings.siteUrl = location.origin + location.pathname.replace(/[^/]*$/, '').replace(/\/$/, '');
       // A few sample bookings over the next two weeks so the calendar isn't empty.
@@ -113,6 +113,8 @@ var Api = (function () {
         rows.forEach(function (r) { for (var i = 0; i < all.length; i++) if (all[i].id === r.id) all[i] = JSON.parse(JSON.stringify(r)); });
         write();
       },
+      getStaff: function () { return JSON.parse(JSON.stringify(read().staff || [])); },
+      saveStaff: function (l) { read().staff = JSON.parse(JSON.stringify(l)); write(); },
       checkPasscode: function (p) { return p === read().passcode; },
       setPasscode: function (p) { read().passcode = p; write(); },
       sendMail: function (to, subject, body) { if (window.console) console.info('[demo email] To: ' + to + '\n' + subject + '\n\n' + body); },
@@ -133,6 +135,7 @@ var Api = (function () {
         }
         return new Promise(function (resolve, reject) {
           setTimeout(function () {
+            mem = null; // re-read saved data, in case another tab changed it
             try { resolve(JSON.parse(JSON.stringify(Core.handle(action, payload, store, now())))); }
             catch (e) { reject(e); }
           }, 250);
