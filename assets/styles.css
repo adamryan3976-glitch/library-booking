@@ -209,6 +209,8 @@ button.slot-open.is-picked .slot-state::before { content: '✓ '; }
 .slot-reserved .who { font-weight: 700; }
 .slot-off { color: var(--ink-3); font-size: 13px; padding: 6px 8px; }
 .where { font-size: 12px; color: var(--ink-3); padding: 0 4px; line-height: 1.2; }
+/* A one-off change for this date (e.g. Teacher in Charge) stands out from the usual schedule. */
+.where.is-change { color: #8A4B08; font-weight: 700; background: #FDF1E3; border-radius: 4px; padding: 2px 5px; }
 
 /* ---------- Day tabs (mobile) ---------- */
 .daytabs { display: none; }

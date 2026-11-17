@@ -115,3 +115,14 @@
 .bulk-add summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 .bulk-add textarea { margin: 6px 0; }
 @media (max-width: 760px) { .add-staff { grid-template-columns: 1fr; } }
+
+/* One-off librarian changes */
+.change-form { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 14px 16px; display: grid; gap: 10px; margin-bottom: 12px; }
+.change-form .form-grid { margin: 0; }
+.change-form p { margin: 0; }
+.ch-times { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ch-times .minilabel { margin: 0; }
+.ch-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.change-form .toggles { margin: 0; }
+.change-form .toggle span { min-height: 36px; font-size: 14px; }
+#changeTable .where-cell { color: #8A4B08; font-weight: 700; }

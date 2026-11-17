@@ -353,6 +353,9 @@
     var lastDay = Core.addDays(now.date, s.windowDays || 0);
     var multiSpace = s.spaces.length > 1;
     var editGid = state.editing && state.editing.groupId;
+    // One-off changes to where the librarian is, by date + time slot (override the weekly template).
+    var changes = {};
+    (cfg.librarianChanges || []).forEach(function (c) { changes[c.date + '|' + c.slot] = c.where; });
 
     $('weekLabel').textContent = weekLabel(wk);
     $('weekSub').textContent = weekSub(wk);
@@ -418,10 +421,13 @@
             cell += '<div class="slot-off">' + spaceTag + esc(st.text || '') + '</div>';
           }
         });
-        if (s.showLibrarian && cfg.librarian[slot.name]) {
-          var where = (cfg.librarian[slot.name] || [])[info.cycleDay - 1];
+        if (s.showLibrarian) {
+          var changed = changes.hasOwnProperty(d + '|' + slot.name);
+          var where = changed ? changes[d + '|' + slot.name] : (cfg.librarian[slot.name] || [])[info.cycleDay - 1];
           // Only call out the librarian when they're somewhere other than the library itself.
-          if (where && where.trim().toLowerCase() !== 'library') cell += '<div class="where">' + esc(s.librarianLabel) + ' ' + esc(where) + '</div>';
+          if (where && where.trim().toLowerCase() !== 'library') {
+            cell += '<div class="where' + (changed ? ' is-change' : '') + '">' + esc(s.librarianLabel) + ' ' + esc(where) + '</div>';
+          }
         }
         html.push(cell + '</div>');
       });

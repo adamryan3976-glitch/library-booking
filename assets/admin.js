@@ -43,7 +43,8 @@
       $('fFrom').value = today(); $('fTo').value = Core.addDays(today(), 30);
       fillSettings(); renderStatics(); renderCalendar(); renderLibrarian();
       $('sRestrict').checked = !!st.settings.restrictToApproved;
-      loadBookings(); loadStaff();
+      loadBookings(); loadStaff(); loadChanges();
+      $('chDate').value = today(); renderChangeForm();
     }).catch(function (e) {
       try { sessionStorage.removeItem(SS_KEY); } catch (x) { }
       $('loginError').textContent = e.message; $('loginError').hidden = false;
@@ -338,6 +339,48 @@
     }).join('');
   }
 
+  // ------------------------------------------------------------ One-off librarian changes
+
+  st.changes = [];
+  function loadChanges() {
+    return call('adminLibrarianChanges').then(function (r) { st.changes = r.changes; renderChanges(); })
+      .catch(function (e) { toast(e.message, true); });
+  }
+
+  function renderChangeForm() {
+    var s = st.settings, d = $('chDate').value;
+    var picked = {};
+    document.querySelectorAll('#chSlots input:checked').forEach(function (i) { picked[i.value] = true; });
+    $('chSlots').innerHTML = s.slots.map(function (sl) {
+      return '<label class="toggle"><input type="checkbox" value="' + esc(sl.name) + '"' + (picked[sl.name] ? ' checked' : '') + '><span>' + esc(sl.name) + '</span></label>';
+    }).join('');
+    if (!Core.isDateStr(d)) { $('chDayInfo').textContent = ''; return; }
+    var info = Core.dayInfo(d, s, st.calendar);
+    $('chDayInfo').textContent = Core.fmtDateLong(d) + ': ' + (info.closed ? 'no school (' + info.closedLabel + ')' : 'Day ' + info.cycleDay);
+  }
+
+  function quickPick(which) {
+    document.querySelectorAll('#chSlots input').forEach(function (i) {
+      var sl = st.settings.slots[Core.slotIndex(st.settings, i.value)] || {};
+      var start = Core.toMinutes(sl.start);
+      i.checked = which === 'all' || (which === 'am' && start < 12 * 60) || (which === 'pm' && start >= 12 * 60);
+    });
+  }
+
+  function renderChanges() {
+    var t = today();
+    var list = st.changes.filter(function (c) { return c.date >= t; });
+    var prev = '';
+    document.querySelector('#changeTable tbody').innerHTML = list.map(function (c) {
+      var first = c.date !== prev; prev = c.date;
+      return '<tr class="' + (first ? 'day-start' : '') + '"><td class="nowrap">' + (first ? '<b>' + Core.fmtDateLong(c.date) + '</b>' : '') + '</td>' +
+        '<td class="nowrap">' + esc(c.slot) + '</td><td class="where-cell">' + esc(c.where) + '</td>' +
+        '<td class="actions"><button class="btn btn-danger btn-small" type="button" data-unchange="' + esc(c.id) + '">Remove</button></td></tr>';
+    }).join('');
+    $('changeTableWrap').hidden = !list.length;
+    $('changeEmpty').hidden = !!list.length;
+  }
+
   // ------------------------------------------------------------ Settings
 
   function fillSettings() {
@@ -379,7 +422,7 @@
     if (btn) busy(btn, true);
     return call('adminSaveSettings', { settings: patch }).then(function (r) {
       st.settings = r.settings; toast(msg || 'Settings saved');
-      fillSettings(); renderStatics(); renderLibrarian();
+      fillSettings(); renderStatics(); renderLibrarian(); renderChangeForm();
     }).catch(function (e) { toast(e.message, true); throw e; }).then(function () { if (btn) busy(btn, false); }, function () { if (btn) busy(btn, false); });
   }
 
@@ -485,6 +528,29 @@
         .catch(function (e) { toast(e.message, true); }).then(function () { busy(btn, false); });
     };
 
+    // One-off librarian changes
+    $('chDate').addEventListener('change', renderChangeForm);
+    document.querySelector('.ch-quick').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-quick]'); if (b) quickPick(b.dataset.quick);
+    });
+    $('changeForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var slots = Array.prototype.map.call(document.querySelectorAll('#chSlots input:checked'), function (i) { return i.value; });
+      var btn = $('chAdd'); busy(btn, true);
+      call('adminAddLibrarianChange', { date: $('chDate').value, slots: slots, where: $('chWhere').value }).then(function (r) {
+        st.changes = r.changes; renderChanges();
+        toast('Saved. Teachers will see “' + $('chWhere').value.trim() + '” for ' + slots.length + (slots.length === 1 ? ' time.' : ' times.'));
+        quickPick('none');
+      }).catch(function (err) { toast(err.message, true); }).then(function () { busy(btn, false); });
+    });
+    $('changeTable').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-unchange]'); if (!b) return;
+      busy(b, true, 'Removing…');
+      call('adminRemoveLibrarianChange', { ids: [b.dataset.unchange] }).then(function (r) {
+        st.changes = r.changes; renderChanges(); toast('Change removed');
+      }).catch(function (err) { toast(err.message, true); busy(b, false); });
+    });
+
     // Librarian
     $('saveLib').onclick = function () {
       var grid = {};
@@ -493,7 +559,7 @@
       call('adminSaveLibrarian', { librarian: grid }).then(function (r) {
         st.librarian = r.librarian;
         return call('adminSaveSettings', { settings: { showLibrarian: $('sShowLibrarian').checked, librarianLabel: $('sLibrarianLabel').value.trim() } });
-      }).then(function (r) { st.settings = r.settings; toast('Librarian schedule saved'); })
+      }).then(function (r) { st.settings = r.settings; toast('Weekly schedule saved'); })
         .catch(function (e) { toast(e.message, true); }).then(function () { busy(btn, false); });
     };
 

@@ -574,6 +574,10 @@ var Core = (function () {
     return out;
   }
 
+  function sortChanges(list, s) {
+    return list.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : slotIndex(s, a.slot) - slotIndex(s, b.slot); });
+  }
+
   // ---------- Approved staff ----------
   // Staff record: { email, name, status: 'approved'|'pending'|'denied', requested, decided, note }
 
@@ -626,7 +630,9 @@ var Core = (function () {
     switch (action) {
       case 'init':
         return { settings: publicSettings(ctx.settings), calendar: ctx.calendar, statics: ctx.statics,
-          librarian: store.getLibrarian(), today: now.date, nowMinutes: now.minutes,
+          librarian: store.getLibrarian(),
+          librarianChanges: store.getLibrarianChanges().filter(function (c) { return c.date >= addDays(now.date, -7); }),
+          today: now.date, nowMinutes: now.minutes,
           me: p.authEmail ? { email: p.authEmail, name: me && me.status === 'approved' ? me.name : '' } : null };
 
       case 'requestAccess':
@@ -793,6 +799,38 @@ var Core = (function () {
           } else throw err('Unknown decision.');
           store.saveStaff(list);
           return { staff: sortStaff(list) };
+        });
+
+      // ----- One-off changes to where the librarian is (date + time slot) -----
+      case 'adminLibrarianChanges':
+        checkAdmin(p, store);
+        return { changes: sortChanges(store.getLibrarianChanges().filter(function (c) { return c.date >= addDays(now.date, -30); }), ctx.settings) };
+
+      case 'adminAddLibrarianChange':
+        checkAdmin(p, store);
+        return store.withLock(function () {
+          var s = ctx.settings;
+          if (!isDateStr(p.date)) throw err('Pick a date.');
+          var slots = cleanList(p.slots);
+          if (!slots.length) throw err('Pick at least one time.');
+          slots.forEach(function (sl) { if (slotIndex(s, sl) === 999) throw err(sl + ' is not a time slot.'); });
+          var where = String(p.where || '').trim().slice(0, 120);
+          if (!where) throw err('Say where you’ll be (e.g. Teacher in Charge, Room 104, Away).');
+          var list = store.getLibrarianChanges().filter(function (c) {
+            return !(c.date === p.date && slots.indexOf(c.slot) >= 0) && c.date >= addDays(now.date, -60);
+          });
+          slots.forEach(function (sl) { list.push({ id: store.newId(), date: p.date, slot: sl, where: where }); });
+          store.saveLibrarianChanges(sortChanges(list, s));
+          return { changes: sortChanges(list.filter(function (c) { return c.date >= addDays(now.date, -30); }), s) };
+        });
+
+      case 'adminRemoveLibrarianChange':
+        checkAdmin(p, store);
+        return store.withLock(function () {
+          var ids = p.ids || [];
+          var list = store.getLibrarianChanges().filter(function (c) { return ids.indexOf(c.id) < 0; });
+          store.saveLibrarianChanges(list);
+          return { changes: sortChanges(list.filter(function (c) { return c.date >= addDays(now.date, -30); }), ctx.settings) };
         });
 
       case 'adminSetPasscode':

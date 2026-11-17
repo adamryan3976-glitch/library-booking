@@ -113,6 +113,8 @@ var Api = (function () {
         rows.forEach(function (r) { for (var i = 0; i < all.length; i++) if (all[i].id === r.id) all[i] = JSON.parse(JSON.stringify(r)); });
         write();
       },
+      getLibrarianChanges: function () { return JSON.parse(JSON.stringify(read().librarianChanges || [])); },
+      saveLibrarianChanges: function (l) { read().librarianChanges = JSON.parse(JSON.stringify(l)); write(); },
       getStaff: function () { return JSON.parse(JSON.stringify(read().staff || [])); },
       saveStaff: function (l) { read().staff = JSON.parse(JSON.stringify(l)); write(); },
       checkPasscode: function (p) { return p === read().passcode; },
