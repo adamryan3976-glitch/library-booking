@@ -192,9 +192,40 @@
       <div class="panel-head">
         <div>
           <h2>Librarian schedule</h2>
-          <p class="muted">Where the librarian is for each cycle day. Teachers see this note under a time when it says anything other than “Library”.</p>
+          <p class="muted">Where the librarian is during each time. Teachers see this note under a time when it says anything other than “Library”.</p>
         </div>
       </div>
+
+      <h3>Changes for a specific day</h3>
+      <p class="muted">For one-offs like Teacher in Charge, a meeting or a supply day. A change replaces the weekly schedule for just those times on that date, and teachers see it highlighted.</p>
+      <form class="change-form" id="changeForm" novalidate>
+        <div class="form-grid tight">
+          <label>Date<input type="date" id="chDate"></label>
+          <label>Where you’ll be<input type="text" id="chWhere" maxlength="120" placeholder="e.g. Teacher in Charge"></label>
+        </div>
+        <p class="muted small" id="chDayInfo"></p>
+        <div class="ch-times">
+          <span class="minilabel">Times</span>
+          <span class="ch-quick">
+            <button class="btn btn-quiet btn-small" type="button" data-quick="am">Morning</button>
+            <button class="btn btn-quiet btn-small" type="button" data-quick="pm">Afternoon</button>
+            <button class="btn btn-quiet btn-small" type="button" data-quick="all">All day</button>
+            <button class="btn btn-quiet btn-small" type="button" data-quick="none">Clear</button>
+          </span>
+        </div>
+        <div class="toggles" id="chSlots"></div>
+        <div><button class="btn btn-primary" type="submit" id="chAdd">Save change</button></div>
+      </form>
+      <div class="table-wrap" id="changeTableWrap">
+        <table class="table" id="changeTable">
+          <thead><tr><th>Date</th><th>Time</th><th>Where</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="changeEmpty">No changes coming up.</p>
+
+      <h3>Weekly schedule</h3>
+      <p class="muted">The usual week, by cycle day.</p>
       <div class="form-grid">
         <label class="check"><input type="checkbox" id="sShowLibrarian"> Show the librarian’s location on the booking page</label>
         <label>Label<input type="text" id="sLibrarianLabel"></label>
@@ -202,7 +233,7 @@
       <div class="table-wrap">
         <table class="table table-edit" id="libTable"><thead></thead><tbody></tbody></table>
       </div>
-      <div class="savebar"><button class="btn btn-primary" id="saveLib" type="button">Save librarian schedule</button></div>
+      <div class="savebar"><button class="btn btn-primary" id="saveLib" type="button">Save weekly schedule</button></div>
     </section>
 
     <!-- Settings -->
