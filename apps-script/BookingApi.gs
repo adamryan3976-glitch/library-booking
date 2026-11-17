@@ -30,7 +30,8 @@ var SHEETS = {
   calendar: 'App Calendar',
   librarian: 'App Librarian Schedule',
   settings: 'App Settings',
-  staff: 'App Staff'
+  staff: 'App Staff',
+  librarianChanges: 'App Librarian Changes'
 };
 var STAFF_COLS = ['email', 'name', 'status', 'requested', 'decided', 'note'];
 var STAFF_HEADERS = ['Email', 'Name', 'Status (approved / pending / denied)', 'Requested', 'Decided', 'Note'];
@@ -272,6 +273,24 @@ var Store = {
     this._staff = list;
     var rows = list.map(function (o) { return STAFF_COLS.map(function (k) { return o[k] == null ? '' : o[k]; }); });
     writeTable_(this.staffSheet(), rows, STAFF_COLS.length);
+  },
+
+  // One-off librarian location changes: one row per date + time slot.
+  getLibrarianChanges: function () {
+    var sh = this.ss().getSheetByName(SHEETS.librarianChanges);
+    if (!sh) return [];
+    return sh.getDataRange().getValues().slice(1).filter(function (r) { return r[0] && r[1] && r[2]; }).map(function (r) {
+      return { id: String(r[0]), date: dateStr_(r[1]), slot: String(r[2]).trim(), where: String(r[3] || '').trim() };
+    });
+  },
+  saveLibrarianChanges: function (list) {
+    var ss = this.ss(), sh = ss.getSheetByName(SHEETS.librarianChanges);
+    if (!sh) {
+      sh = ss.insertSheet(SHEETS.librarianChanges);
+      sh.getRange(1, 1, 1, 4).setValues([['ID', 'Date', 'Time slot', 'Where the librarian is']]).setFontWeight('bold').setBackground('#e8eaf2');
+      sh.setFrozenRows(1);
+    }
+    writeTable_(sh, list.map(function (c) { return [c.id, c.date, c.slot, c.where]; }), 4);
   },
 
   checkPasscode: function (p) {
